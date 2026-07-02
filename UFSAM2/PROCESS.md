@@ -304,6 +304,72 @@ This produces summary metrics:
 - `sam_score_oracle_match`
 - `token_beats_sam_score`
 
+Debug20 result:
+
+| setting | mIoU |
+| --- | ---: |
+| random | 0.9450 |
+| SAM-score selected | 0.9432 |
+| token selected | 0.9448 |
+| oracle best | 0.9473 |
+| all supports | 0.9443 |
+
+Debug20 read:
+
+- This is a smoke test only; all methods are within about `0.004` mIoU.
+- Token selected beats SAM-score selected by `0.0016` average, but does not beat random on this tiny sample.
+- Need a larger support-selection run before making any intervention claim.
+
+Support-selection 200-episode result:
+
+| setting | mIoU | fail IoU<0.5 | risk IoU<0.7 |
+| --- | ---: | ---: | ---: |
+| random | 0.8972 | 4.5% | 7.0% |
+| SAM-score selected | 0.9009 | 3.5% | 8.0% |
+| token selected | 0.9115 | 3.0% | 6.0% |
+| oracle best | 0.9324 | 1.0% | 2.0% |
+| all supports | 0.9091 | 2.5% | 7.0% |
+
+Paired differences over 200 episodes:
+
+- token - random: `+0.0143 ± 0.0065` SE
+- token - SAM-score: `+0.0107 ± 0.0062` SE
+- token - all-supports: `+0.0025 ± 0.0087` SE
+- oracle - token: `+0.0209 ± 0.0073` SE
+
+Selection diagnostics:
+
+- token oracle match: `33.0%`
+- SAM-score oracle match: `28.5%`
+- token beats SAM-score: `33.5%`
+- token and SAM-score choose different support in `127/200` episodes.
+
+High-spread subset, where best support minus worst support IoU is greater than `0.05`:
+
+- subset size: `31/200`
+- random: `0.6929`
+- SAM-score selected: `0.7176`
+- token selected: `0.7849`
+- all supports: `0.7684`
+- oracle best: `0.9004`
+
+Stage 3 read:
+
+- Token selection shows a real positive intervention signal at 200 episodes.
+- The effect is modest over all episodes because most FSS-1000 support choices are already similar; only `15.5%` of episodes have support spread greater than `0.05`.
+- In high-spread episodes, token selection is meaningfully better than SAM-score and all-supports, which matches the intended use case.
+- Token does not close the oracle gap; support reliability remains partially unsolved.
+- Next check should be either a larger run or a harder dataset/part setting where support quality variance is larger.
+
+5-shot all-support cache result:
+
+- Number of records: `2400`
+- Mean true IoU: `0.9205`
+- Min / max true IoU: `0.0 / 0.9949`
+- `IoU < 0.5`: `1.96%`
+- `IoU < 0.7`: `4.87%`
+- Compared with 1-shot cache, mean IoU is `+0.0083`, `IoU<0.5` drops by `0.75` points, and `IoU<0.7` drops by `1.42` points.
+
 Optional memory-summary feature ablation:
 
 ```bash
