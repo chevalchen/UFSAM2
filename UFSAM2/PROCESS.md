@@ -370,6 +370,47 @@ Stage 3 read:
 - `IoU < 0.7`: `4.87%`
 - Compared with 1-shot cache, mean IoU is `+0.0083`, `IoU<0.5` drops by `0.75` points, and `IoU<0.7` drops by `1.42` points.
 
+Full 2400 support-selection result with class-disjoint token head:
+
+| setting | mIoU | fail IoU<0.5 | risk IoU<0.7 |
+| --- | ---: | ---: | ---: |
+| random | 0.9138 | 2.67% | 5.75% |
+| SAM-score selected | 0.9170 | 2.58% | 5.67% |
+| token selected | 0.9211 | 2.13% | 4.83% |
+| oracle best | 0.9353 | 1.13% | 2.83% |
+| all supports | 0.9205 | 1.96% | 4.87% |
+
+Paired differences over 2400 episodes:
+
+- token - random: `+0.0074 ± 0.0016` SE
+- token - SAM-score: `+0.0042 ± 0.0013` SE
+- token - all-supports: `+0.0006 ± 0.0014` SE
+- oracle - token: `+0.0141 ± 0.0013` SE
+
+Full-run selection diagnostics:
+
+- token oracle match: `30.8%`
+- SAM-score oracle match: `27.9%`
+- token beats SAM-score: `33.8%`
+- token - SAM-score has many exact ties because multiple supports often produce nearly identical masks.
+
+High-spread subsets:
+
+| support spread threshold | episodes | random | SAM-score | token | all supports | oracle | token - SAM | token - all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `>0.02` | 554 | 0.8172 | 0.8312 | 0.8486 | 0.8454 | 0.9025 | +0.0175 | +0.0032 |
+| `>0.05` | 353 | 0.7733 | 0.7941 | 0.8219 | 0.8172 | 0.8988 | +0.0278 | +0.0047 |
+| `>0.10` | 269 | 0.7495 | 0.7745 | 0.8096 | 0.8030 | 0.9025 | +0.0351 | +0.0066 |
+| `>0.20` | 194 | 0.7333 | 0.7567 | 0.8052 | 0.8001 | 0.9178 | +0.0486 | +0.0051 |
+
+Full Stage 3 read:
+
+- Token support selection has a stable positive intervention gain over random and SAM-score selection on all 2400 FSS episodes.
+- Token selected and all-supports are effectively tied globally; token is only `+0.0006` over all-supports.
+- The intended behavior appears clearly in high-spread episodes, where support quality actually matters.
+- FSS-1000 is close to ceiling, so this is a positive sanity check rather than the final proof; Pascal-Part/PACO-Part should be more diagnostic.
+- Oracle remains meaningfully above token selection, so support reliability prediction still has headroom.
+
 Optional memory-summary feature ablation:
 
 ```bash
