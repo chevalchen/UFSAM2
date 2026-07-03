@@ -104,75 +104,11 @@ CUDA_VISIBLE_DEVICES=1
 
 Inside Python this remaps the selected physical GPU to logical `cuda:0`, so use `--device cuda`, not `--device cuda:1`.
 
-## Verified Smoke Tests
+## FSS-1000 Sanity Checks
 
-CPU tiny smoke test succeeded:
+FSS-1000 is now treated as a sanity/calibration dataset, not the final proof: SANSA is near ceiling, failure cases are rare, and intervention gains are necessarily small.
 
-```bash
-MPLCONFIGDIR=/tmp/matplotlib conda run -n sam2coco python collect_uncertainty_cache.py \
-  --dataset_file fss \
-  --prompt mask \
-  --shots 1 \
-  --sam2_version tiny \
-  --device cpu \
-  --data_root /data6/chensq/datasets \
-  --max_episodes 1 \
-  --cache_path /tmp/ufs2_smoke_uncertainty.pt \
-  --output_dir /tmp/ufs2_smoke \
-  --name_exp cache_smoke
-```
-
-GPU large debug run succeeded for 10 FSS episodes:
-
-```bash
-MPLCONFIGDIR=/tmp/matplotlib conda run -n sam2coco python collect_uncertainty_cache.py \
-  --dataset_file fss \
-  --prompt mask \
-  --shots 1 \
-  --fold 0 \
-  --sam2_version large \
-  --adaptformer_stages 2 3 \
-  --channel_factor 0.3 \
-  --device cuda \
-  --data_root /data6/chensq/datasets \
-  --resume pretrain/adapter_fss_fold0.pth \
-  --max_episodes 10 \
-  --cache_path output/debug_fss_10.pt
-```
-
-The debug cache contains 10 records with fields:
-
-- `dataset`
-- `fold`
-- `shot`
-- `episode_idx`
-- `class_id`
-- `category`
-- `query_name`
-- `support_names`
-- `true_iou`
-- `sam_score`
-- `query_iou_token`
-- `query_mask_token`
-- `query_mask_tokens`
-- `query_obj_ptr`
-- `query_memory_summary`
-- `pred_area`
-- `gt_area`
-- `support_area_mean`
-- `support_area_std`
-
-Expected tensor shapes:
-
-- `query_iou_token`: `(256,)`
-- `query_mask_token`: `(256,)`
-- `query_mask_tokens`: `(4, 256)`
-- `query_obj_ptr`: `(256,)`
-- `query_memory_summary`: `(256,)`
-
-## Full FSS Cache Commands
-
-1-shot FSS:
+Main 1-shot cache command:
 
 ```bash
 MPLCONFIGDIR=/tmp/matplotlib conda run -n sam2coco python collect_uncertainty_cache.py \
@@ -189,58 +125,16 @@ MPLCONFIGDIR=/tmp/matplotlib conda run -n sam2coco python collect_uncertainty_ca
   --cache_path output/fss_fold0_1shot_mask_uncertainty.pt
 ```
 
-5-shot FSS:
+Use the same command with `--shots 5` and `--cache_path output/fss_fold0_5shot_mask_uncertainty.pt` for the 5-shot all-support cache.
 
-```bash
-MPLCONFIGDIR=/tmp/matplotlib conda run -n sam2coco python collect_uncertainty_cache.py \
-  --dataset_file fss \
-  --prompt mask \
-  --shots 5 \
-  --fold 0 \
-  --sam2_version large \
-  --adaptformer_stages 2 3 \
-  --channel_factor 0.3 \
-  --device cuda \
-  --data_root /data6/chensq/datasets \
-  --resume pretrain/adapter_fss_fold0.pth \
-  --cache_path output/fss_fold0_5shot_mask_uncertainty.pt
-```
+Cache distributions:
 
-Check cache:
+| cache | episodes | mean IoU | IoU<0.5 | IoU<0.7 |
+| --- | ---: | ---: | ---: | ---: |
+| 1-shot | 2400 | 0.9122 | 2.71% | 6.29% |
+| 5-shot all-supports | 2400 | 0.9205 | 1.96% | 4.87% |
 
-```bash
-conda run -n sam2coco python -c "import torch; r=torch.load('output/debug_fss_10.pt', map_location='cpu', weights_only=False); print(len(r)); print(r[0].keys())"
-```
-
-Full 1-shot FSS cache check result:
-
-- Number of records: `2400`
-- Mean true IoU: `0.9122`
-- Min / max true IoU: `0.0 / 0.9952`
-- `IoU < 0.5`: `2.71%`
-- `IoU < 0.7`: `6.29%`
-
-## Train Stage 1 Uncertainty Head
-
-Default token features:
-
-```text
-query_iou_token + query_mask_token + query_obj_ptr
-```
-
-Train on the full FSS 1-shot cache:
-
-```bash
-MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
-  --cache_path output/fss_fold0_1shot_mask_uncertainty.pt \
-  --output_dir output/uncertainty_head_fss_1shot \
-  --device cuda \
-  --epochs 200 \
-  --batch_size 128 \
-  --feature_set tokens
-```
-
-Class-disjoint split, grouped by `class_id`:
+Main class-disjoint token-head command:
 
 ```bash
 MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
@@ -253,11 +147,7 @@ MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
   --split_by class_id
 ```
 
-For the current FSS cache this split gives:
-
-- train: `1680` episodes, `168` classes
-- val: `360` episodes, `36` classes
-- test: `360` episodes, `36` classes
+Feature set: `query_iou_token + query_mask_token + query_obj_ptr`. Class split: train `1680/168` episodes/classes, val `360/36`, test `360/36`.
 
 Class-disjoint result:
 
@@ -270,11 +160,10 @@ Class-disjoint read:
 
 - The token head loses much of the random-split severe-failure AUROC, so random split was optimistic.
 - It still beats `sam_score` on the same held-out classes, especially calibration and `IoU<0.5`.
-- `IoU<0.7` gain is modest; this should be treated as sanity-check evidence, not yet a final intervention result.
+- `memory_summary` did not help in FSS ablations; keep `tokens` as the main intervention head.
+- FSS evidence is useful but not decisive because `IoU<0.7` gain is modest and the dataset is near ceiling.
 
-## Stage 3 Support Selection
-
-Minimal intervention script:
+Main full support-selection command:
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_selection.py \
@@ -289,86 +178,8 @@ CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_sele
   --data_root /data6/chensq/datasets \
   --resume pretrain/adapter_fss_fold0.pth \
   --head_ckpt output/uncertainty_head_fss_1shot_class_split/uncertainty_head.pt \
-  --max_episodes 20 \
-  --output_path output/support_selection_debug20.json
+  --output_path output/support_selection_full2400_class_head.json
 ```
-
-This produces summary metrics:
-
-- `miou_random`
-- `miou_sam_score`
-- `miou_token`
-- `miou_oracle`
-- `miou_all_supports`
-- `token_oracle_match`
-- `sam_score_oracle_match`
-- `token_beats_sam_score`
-
-Debug20 result:
-
-| setting | mIoU |
-| --- | ---: |
-| random | 0.9450 |
-| SAM-score selected | 0.9432 |
-| token selected | 0.9448 |
-| oracle best | 0.9473 |
-| all supports | 0.9443 |
-
-Debug20 read:
-
-- This is a smoke test only; all methods are within about `0.004` mIoU.
-- Token selected beats SAM-score selected by `0.0016` average, but does not beat random on this tiny sample.
-- Need a larger support-selection run before making any intervention claim.
-
-Support-selection 200-episode result:
-
-| setting | mIoU | fail IoU<0.5 | risk IoU<0.7 |
-| --- | ---: | ---: | ---: |
-| random | 0.8972 | 4.5% | 7.0% |
-| SAM-score selected | 0.9009 | 3.5% | 8.0% |
-| token selected | 0.9115 | 3.0% | 6.0% |
-| oracle best | 0.9324 | 1.0% | 2.0% |
-| all supports | 0.9091 | 2.5% | 7.0% |
-
-Paired differences over 200 episodes:
-
-- token - random: `+0.0143 ± 0.0065` SE
-- token - SAM-score: `+0.0107 ± 0.0062` SE
-- token - all-supports: `+0.0025 ± 0.0087` SE
-- oracle - token: `+0.0209 ± 0.0073` SE
-
-Selection diagnostics:
-
-- token oracle match: `33.0%`
-- SAM-score oracle match: `28.5%`
-- token beats SAM-score: `33.5%`
-- token and SAM-score choose different support in `127/200` episodes.
-
-High-spread subset, where best support minus worst support IoU is greater than `0.05`:
-
-- subset size: `31/200`
-- random: `0.6929`
-- SAM-score selected: `0.7176`
-- token selected: `0.7849`
-- all supports: `0.7684`
-- oracle best: `0.9004`
-
-Stage 3 read:
-
-- Token selection shows a real positive intervention signal at 200 episodes.
-- The effect is modest over all episodes because most FSS-1000 support choices are already similar; only `15.5%` of episodes have support spread greater than `0.05`.
-- In high-spread episodes, token selection is meaningfully better than SAM-score and all-supports, which matches the intended use case.
-- Token does not close the oracle gap; support reliability remains partially unsolved.
-- Next check should be either a larger run or a harder dataset/part setting where support quality variance is larger.
-
-5-shot all-support cache result:
-
-- Number of records: `2400`
-- Mean true IoU: `0.9205`
-- Min / max true IoU: `0.0 / 0.9949`
-- `IoU < 0.5`: `1.96%`
-- `IoU < 0.7`: `4.87%`
-- Compared with 1-shot cache, mean IoU is `+0.0083`, `IoU<0.5` drops by `0.75` points, and `IoU<0.7` drops by `1.42` points.
 
 Full 2400 support-selection result with class-disjoint token head:
 
@@ -479,66 +290,7 @@ Pascal-Part read:
 - `sam_score` has slightly stronger AUROC for the two hard thresholds, so failure ranking and expected-IoU calibration should be reported separately.
 - Next necessary intervention check is Pascal-Part 5-shot support selection with the same generalist `cf0.8` setup.
 
-Pascal-Part 5-shot support-selection 200-episode command:
-
-```bash
-CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_selection.py \
-  --dataset_file pascal_part \
-  --prompt mask \
-  --shots 5 \
-  --fold 0 \
-  --sam2_version large \
-  --adaptformer_stages 2 3 \
-  --channel_factor 0.8 \
-  --device cuda \
-  --data_root /data6/chensq/datasets \
-  --resume pretrain/adapter_generalist.pth \
-  --head_ckpt output/uncertainty_head_pascal_part_fold0_1shot_class_split/uncertainty_head.pt \
-  --max_episodes 200 \
-  --output_path output/support_selection_pascal_part_fold0_200_generalist_cf08.json
-```
-
-Pascal-Part support-selection 200-episode result:
-
-| setting | mIoU | fail IoU<0.5 | risk IoU<0.7 |
-| --- | ---: | ---: | ---: |
-| random | 0.3958 | 59.5% | 75.0% |
-| SAM-score selected | 0.4366 | 52.0% | 73.0% |
-| token selected | 0.4787 | 46.5% | 68.5% |
-| oracle best | 0.5922 | 33.0% | 57.0% |
-| all supports | 0.4953 | 45.0% | 70.0% |
-
-Paired differences over 200 episodes:
-
-- token - random: `+0.0829 ± 0.0168` SE
-- token - SAM-score: `+0.0421 ± 0.0141` SE
-- token - all-supports: `-0.0165 ± 0.0138` SE
-- oracle - token: `+0.1134 ± 0.0129` SE
-
-Selection diagnostics:
-
-- token oracle match: `31.0%`
-- SAM-score oracle match: `23.5%`
-- token beats SAM-score: `38.0%`
-- token and SAM-score choose the same support in `81/200` episodes.
-- token beats all-supports in `47.5%` of episodes and loses in `48.5%`; the mean is slightly below all-supports.
-
-High-spread subsets:
-
-| support spread threshold | episodes | random | SAM-score | token | all supports | oracle | token - SAM | token - all |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `>0.05` | 187 | 0.3891 | 0.4332 | 0.4773 | 0.4954 | 0.5981 | +0.0441 | -0.0181 |
-| `>0.10` | 169 | 0.3775 | 0.4263 | 0.4746 | 0.4945 | 0.6045 | +0.0484 | -0.0199 |
-| `>0.20` | 123 | 0.3818 | 0.4440 | 0.5029 | 0.5341 | 0.6594 | +0.0589 | -0.0311 |
-| `>0.30` | 108 | 0.3886 | 0.4627 | 0.5206 | 0.5589 | 0.6850 | +0.0579 | -0.0383 |
-
-Pascal-Part support-selection read:
-
-- Token selection gives a much larger intervention gain over random and SAM-score than on FSS-1000.
-- Unlike FSS, all-supports remains better than single token-selected support in mean mIoU; this suggests support aggregation helps in difficult part segmentation.
-- The token head still reduces severe failures versus random and SAM-score, and slightly improves `IoU<0.7` risk over all-supports.
-- Oracle gap is large, so support reliability remains a real unsolved signal rather than a saturated metric.
-- Next minimal check is the full 2500-episode Pascal-Part support-selection run with the same setup.
+The 200-episode pilot already showed the same trend as the full run, so the full 2500-episode result below is the main Pascal-Part intervention result.
 
 Pascal-Part 5-shot support-selection full command:
 
@@ -599,50 +351,6 @@ Full Pascal-Part Stage 3 read:
 - In high-spread episodes, token selection gradually beats all-supports, suggesting the uncertainty head is useful specifically when support quality varies.
 - The oracle gap remains large, so the current token head is not a solved support-reliability estimator.
 - This is stronger Stage 3 evidence than FSS-1000 because Pascal-Part is lower-IoU, part-level, and not ceiling-limited.
-
-Optional memory-summary feature ablation:
-
-```bash
-MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
-  --cache_path output/fss_fold0_1shot_mask_uncertainty.pt \
-  --output_dir output/uncertainty_head_fss_1shot_tokens_mem \
-  --device cuda \
-  --epochs 200 \
-  --batch_size 128 \
-  --feature_set tokens_mem
-```
-
-First `tokens` run result on `output/fss_fold0_1shot_mask_uncertainty.pt`:
-
-| split | MAE | RMSE | Pearson | Spearman | AUROC IoU<0.5 | AUROC IoU<0.7 | ECE |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| train | 0.0062 | 0.0109 | 0.9972 | 0.9804 | 0.9996 | 0.9997 | 0.0014 |
-| val | 0.0623 | 0.1242 | 0.4856 | 0.6344 | 0.8244 | 0.8359 | 0.0265 |
-| test | 0.0501 | 0.1064 | 0.5863 | 0.7164 | 0.9237 | 0.8565 | 0.0204 |
-
-Interpretation:
-
-- Query tokens contain useful expected-IoU / failure-risk signal.
-- The train-vs-val gap is large, so regularization and split protocol need attention.
-- `IoU<0.7` is more stable than `IoU<0.5` on FSS because failure samples are rare.
-- Next useful ablations: `tokens_mem`, linear/ridge baseline, smaller hidden dim, stronger dropout, and class/category-disjoint split if possible.
-
-Follow-up ablations:
-
-| setting | split | MAE | RMSE | Pearson | Spearman | AUROC IoU<0.5 | AUROC IoU<0.7 | ECE |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| SAM `sam_score` | full | 0.0603 | 0.1342 | 0.4423 | 0.7457 | 0.7986 | 0.8293 | 0.0566 |
-| `tokens` | test | 0.0501 | 0.1064 | 0.5863 | 0.7164 | 0.9237 | 0.8565 | 0.0204 |
-| `tokens_mem` | test | 0.0505 | 0.1110 | 0.5199 | 0.7144 | 0.8597 | 0.8065 | 0.0238 |
-| `tokens`, hidden 64, dropout 0.3, wd 1e-3 | test | 0.0452 | 0.0994 | 0.6397 | 0.7060 | 0.8572 | 0.8201 | 0.0256 |
-
-Current read:
-
-- `memory_summary` does not help on FSS-1000 Stage 1; it likely adds dataset-specific or noisy context.
-- The smaller regularized head improves regression error and Pearson, but hurts low-IoU risk AUROC.
-- For intervention-style ranking, keep the original `tokens` head as the main baseline for now.
-- For calibrated expected IoU, the smaller regularized head is a reasonable secondary baseline.
-- SAM's own `sam_score` has strong rank correlation, but it is poorly calibrated and much weaker for `IoU<0.5` failure detection than the token head.
 
 ## Notes
 
