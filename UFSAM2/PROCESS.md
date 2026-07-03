@@ -479,6 +479,67 @@ Pascal-Part read:
 - `sam_score` has slightly stronger AUROC for the two hard thresholds, so failure ranking and expected-IoU calibration should be reported separately.
 - Next necessary intervention check is Pascal-Part 5-shot support selection with the same generalist `cf0.8` setup.
 
+Pascal-Part 5-shot support-selection 200-episode command:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_selection.py \
+  --dataset_file pascal_part \
+  --prompt mask \
+  --shots 5 \
+  --fold 0 \
+  --sam2_version large \
+  --adaptformer_stages 2 3 \
+  --channel_factor 0.8 \
+  --device cuda \
+  --data_root /data6/chensq/datasets \
+  --resume pretrain/adapter_generalist.pth \
+  --head_ckpt output/uncertainty_head_pascal_part_fold0_1shot_class_split/uncertainty_head.pt \
+  --max_episodes 200 \
+  --output_path output/support_selection_pascal_part_fold0_200_generalist_cf08.json
+```
+
+Pascal-Part support-selection 200-episode result:
+
+| setting | mIoU | fail IoU<0.5 | risk IoU<0.7 |
+| --- | ---: | ---: | ---: |
+| random | 0.3958 | 59.5% | 75.0% |
+| SAM-score selected | 0.4366 | 52.0% | 73.0% |
+| token selected | 0.4787 | 46.5% | 68.5% |
+| oracle best | 0.5922 | 33.0% | 57.0% |
+| all supports | 0.4953 | 45.0% | 70.0% |
+
+Paired differences over 200 episodes:
+
+- token - random: `+0.0829 ± 0.0168` SE
+- token - SAM-score: `+0.0421 ± 0.0141` SE
+- token - all-supports: `-0.0165 ± 0.0138` SE
+- oracle - token: `+0.1134 ± 0.0129` SE
+
+Selection diagnostics:
+
+- token oracle match: `31.0%`
+- SAM-score oracle match: `23.5%`
+- token beats SAM-score: `38.0%`
+- token and SAM-score choose the same support in `81/200` episodes.
+- token beats all-supports in `47.5%` of episodes and loses in `48.5%`; the mean is slightly below all-supports.
+
+High-spread subsets:
+
+| support spread threshold | episodes | random | SAM-score | token | all supports | oracle | token - SAM | token - all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `>0.05` | 187 | 0.3891 | 0.4332 | 0.4773 | 0.4954 | 0.5981 | +0.0441 | -0.0181 |
+| `>0.10` | 169 | 0.3775 | 0.4263 | 0.4746 | 0.4945 | 0.6045 | +0.0484 | -0.0199 |
+| `>0.20` | 123 | 0.3818 | 0.4440 | 0.5029 | 0.5341 | 0.6594 | +0.0589 | -0.0311 |
+| `>0.30` | 108 | 0.3886 | 0.4627 | 0.5206 | 0.5589 | 0.6850 | +0.0579 | -0.0383 |
+
+Pascal-Part support-selection read:
+
+- Token selection gives a much larger intervention gain over random and SAM-score than on FSS-1000.
+- Unlike FSS, all-supports remains better than single token-selected support in mean mIoU; this suggests support aggregation helps in difficult part segmentation.
+- The token head still reduces severe failures versus random and SAM-score, and slightly improves `IoU<0.7` risk over all-supports.
+- Oracle gap is large, so support reliability remains a real unsolved signal rather than a saturated metric.
+- Next minimal check is the full 2500-episode Pascal-Part support-selection run with the same setup.
+
 Optional memory-summary feature ablation:
 
 ```bash
