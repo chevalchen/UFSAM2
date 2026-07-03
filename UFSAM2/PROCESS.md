@@ -411,6 +411,74 @@ Full Stage 3 read:
 - FSS-1000 is close to ceiling, so this is a positive sanity check rather than the final proof; Pascal-Part/PACO-Part should be more diagnostic.
 - Oracle remains meaningfully above token selection, so support reliability prediction still has headroom.
 
+## Pascal-Part Class-Disjoint Check
+
+Important configuration note:
+
+- For Pascal-Part mask-only part FSS, use `pretrain/adapter_generalist.pth`.
+- The generalist/universal adapters expect `--adaptformer_stages 2 3 --channel_factor 0.8`.
+- The earlier Pascal-Part cache with `--channel_factor 0.3` produced many checkpoint shape-mismatch skips and should not be used as a main result.
+
+Correct 1-shot Pascal-Part cache:
+
+```bash
+MPLCONFIGDIR=/tmp/matplotlib python collect_uncertainty_cache.py \
+  --dataset_file pascal_part \
+  --prompt mask \
+  --shots 1 \
+  --fold 0 \
+  --sam2_version large \
+  --adaptformer_stages 2 3 \
+  --channel_factor 0.8 \
+  --device cuda \
+  --data_root /data6/chensq/datasets \
+  --resume pretrain/adapter_generalist.pth \
+  --cache_path output/pascal_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt
+```
+
+Correct cache distribution:
+
+- Number of records: `2500`
+- Mean true IoU: `0.4047`
+- Min / max true IoU: `0.0 / 0.9739`
+- `IoU < 0.5`: `57.12%`
+- `IoU < 0.7`: `76.44%`
+- Mean SAM score: `0.5410`
+
+Class-disjoint token-head command:
+
+```bash
+MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
+  --cache_path output/pascal_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt \
+  --output_dir output/uncertainty_head_pascal_part_fold0_1shot_class_split \
+  --device cpu \
+  --epochs 200 \
+  --batch_size 128 \
+  --feature_set tokens \
+  --split_by class_id
+```
+
+For this split:
+
+- train: `1693` episodes, `21` classes
+- val: `323` episodes, `4` classes
+- test: `484` episodes, `6` classes
+
+Class-disjoint result:
+
+| setting | test MAE | test RMSE | test Pearson | test Spearman | test AUROC IoU<0.5 | test AUROC IoU<0.7 | test ECE | pred mean |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `tokens`, class split | 0.1503 | 0.2094 | 0.7221 | 0.6921 | 0.8875 | 0.8473 | 0.0514 | 0.3246 |
+| SAM `sam_score`, same split | 0.1914 | 0.2527 | 0.6916 | 0.6422 | 0.9005 | 0.8931 | 0.1330 | 0.4567 |
+
+Pascal-Part read:
+
+- Pascal-Part is much harder than FSS-1000 and is therefore a better diagnostic setting for uncertainty.
+- Token head is substantially better calibrated than `sam_score`: lower MAE/RMSE/ECE and predicted mean close to test true mean `0.3276`.
+- `sam_score` is overconfident on this split: predicted mean `0.4567` against true mean `0.3276`.
+- `sam_score` has slightly stronger AUROC for the two hard thresholds, so failure ranking and expected-IoU calibration should be reported separately.
+- Next necessary intervention check is Pascal-Part 5-shot support selection with the same generalist `cf0.8` setup.
+
 Optional memory-summary feature ablation:
 
 ```bash
