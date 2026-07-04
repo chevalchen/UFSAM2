@@ -646,25 +646,32 @@ Mixed/unified head read:
 - This is not yet enough for support selection, because intervention depends more on within-episode ranking than global calibration.
 - Next useful check is mixed-head support selection on PACO/Pascal; if PACO remains below all-supports, the current query-only token representation is the bottleneck.
 
-Mixed-head PACO support-selection pilot, seed 0, 200 episodes:
+Mixed-head PACO support-selection, 2 seeds x 200 episodes:
 
 | setting | PACO-only token head | mixed token head |
 | --- | ---: | ---: |
-| random | 0.4540 | 0.4540 |
-| SAM-score selected | 0.4867 | 0.4867 |
-| token selected | 0.4921 | 0.5068 |
-| all supports | 0.5029 | 0.5029 |
-| oracle best | 0.5918 | 0.5918 |
-| token fail IoU<0.5 | 48.5% | 46.0% |
-| token risk IoU<0.7 | 68.0% | 64.5% |
+| random | 0.4520 | 0.4520 |
+| SAM-score selected | 0.4830 | 0.4830 |
+| token selected | 0.4858 | 0.4949 |
+| all supports | 0.4948 | 0.4948 |
+| oracle best | 0.5834 | 0.5834 |
+| token fail IoU<0.5 | 50.0% | 48.0% |
+| token risk IoU<0.7 | 67.8% | 65.8% |
+
+Per-seed mixed-head support-selection summaries:
+
+| seed | random | SAM-score | mixed token | all supports | oracle | token - SAM | token - all |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.4540 | 0.4867 | 0.5068 | 0.5029 | 0.5918 | +0.0200 | +0.0039 |
+| 1 | 0.4500 | 0.4794 | 0.4830 | 0.4867 | 0.5750 | +0.0037 | -0.0037 |
 
 Mixed-head PACO intervention read:
 
-- Mixed token selection improves over the PACO-only token head by `+0.0147` mIoU on the same 200 seed-0 episodes.
-- Mixed token is `+0.0200 ± 0.0122` SE over SAM-score and `+0.0039 ± 0.0116` SE over all-supports.
-- The risk rate improves from `68.0%` to `64.5%`, matching SAM-score and slightly better than all-supports.
-- High-spread episodes show the same direction, especially support-spread `>0.20`: mixed token `0.5222`, SAM-score `0.4894`, all-supports `0.5083`.
-- This is a useful positive pilot, but not yet final evidence because it is one PACO seed and the token-over-all-supports margin is smaller than SE. Repeat seed 1 before changing the paper-level claim.
+- Mixed token selection improves over the PACO-only token head by `+0.0091` mIoU on the same 400 episodes.
+- Mixed token is `+0.0119 ± 0.0077` SE over SAM-score but only `+0.0001 ± 0.0079` SE over all-supports.
+- Risk improves relative to the PACO-only token head: `IoU<0.7` falls from `67.8%` to `65.8%`, roughly matching SAM-score and slightly better than all-supports.
+- High-spread episodes keep the same direction but still mostly show mixed token matching all-supports, not clearly beating it.
+- Read: mixed/unified training fixes part of PACO-only token-head weakness, but it does not yet provide a robust token-over-all-supports intervention gain. Treat it as a stronger direction to develop, not as final PACO evidence.
 
 Leave-PACO-out head command:
 
