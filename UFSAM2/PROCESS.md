@@ -34,9 +34,9 @@
    - Run each support independently.
    - Compare all supports, random support, oracle best support, uncertainty-selected support.
 
-4. Stage 4: PACO-Part propagation risk.
-   - Test support -> query_1 -> query_2 -> query_3 pseudo-video memory updates.
-   - Compare default memory, no pseudo-query memory, random gating, uncertainty gating, oracle gating.
+4. Stage 4: PACO-Part generalization.
+   - Validate expected-IoU calibration and support selection on a harder long-tail part dataset.
+   - Treat memory-propagation risk as a paused side branch, not the main PACO objective.
 
 ## Code Changes So Far
 
@@ -458,6 +458,70 @@ Debug read:
 - The current expected-IoU head is not yet a strong propagation-risk head.
 - Marker: pause this branch here. If resumed, implement explicit memory gating during the sequential forward pass and compare: always sequential, support-only independent, random gating, score-threshold gating, and oracle gating.
 - Main line continues with harder part-setting generalization, especially PACO-Part expected-IoU calibration and support selection.
+
+## PACO-Part Main Line
+
+Current purpose:
+
+- Test whether Pascal-Part uncertainty/support-selection conclusions generalize to a harder part setting.
+- PACO-Part is long-tail and more diverse than Pascal-Part, so it should be more diagnostic than FSS-1000.
+- Use `pretrain/adapter_generalist.pth` with `--adaptformer_stages 2 3 --channel_factor 0.8`.
+- Current PACO dataset sampler is stochastic and ignores `idx`; use fixed seeds for reproducibility. A fixed episode-list sampler can be added later if PACO becomes a final table.
+
+PACO dataset smoke checks:
+
+- Data exists under `/data6/chensq/datasets/PACO-Part`.
+- Fold 0 validation currently exposes `2500` episodes and `79` sampled part classes.
+- `collect_uncertainty_cache.py` smoke passed for 1 CPU/tiny episode.
+
+Recommended 1-shot PACO cache:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python collect_uncertainty_cache.py \
+  --dataset_file paco_part \
+  --prompt mask \
+  --shots 1 \
+  --fold 0 \
+  --sam2_version large \
+  --adaptformer_stages 2 3 \
+  --channel_factor 0.8 \
+  --device cuda \
+  --data_root /data6/chensq/datasets \
+  --resume pretrain/adapter_generalist.pth \
+  --cache_path output/paco_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt
+```
+
+Train PACO class-split uncertainty head:
+
+```bash
+MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
+  --cache_path output/paco_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt \
+  --output_dir output/uncertainty_head_paco_part_fold0_1shot_class_split \
+  --device cpu \
+  --epochs 200 \
+  --batch_size 128 \
+  --feature_set tokens \
+  --split_by class_id
+```
+
+First support-selection debug after the head is trained:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_selection.py \
+  --dataset_file paco_part \
+  --prompt mask \
+  --shots 5 \
+  --fold 0 \
+  --sam2_version large \
+  --adaptformer_stages 2 3 \
+  --channel_factor 0.8 \
+  --device cuda \
+  --data_root /data6/chensq/datasets \
+  --resume pretrain/adapter_generalist.pth \
+  --head_ckpt output/uncertainty_head_paco_part_fold0_1shot_class_split/uncertainty_head.pt \
+  --max_episodes 200 \
+  --output_path output/support_selection_paco_part_fold0_200_generalist_cf08.json
+```
 
 ## Notes
 
