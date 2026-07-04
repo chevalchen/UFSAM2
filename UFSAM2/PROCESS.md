@@ -491,6 +491,15 @@ CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python collect_uncertainty_c
   --cache_path output/paco_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt
 ```
 
+PACO 1-shot cache result:
+
+- Number of records: `2500`
+- Mean true IoU: `0.4329`
+- Min / max true IoU: `0.0 / 0.9904`
+- `IoU < 0.5`: `55.84%`
+- `IoU < 0.7`: `74.60%`
+- Mean SAM score: `0.5501`
+
 Train PACO class-split uncertainty head:
 
 ```bash
@@ -503,6 +512,27 @@ MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
   --feature_set tokens \
   --split_by class_id
 ```
+
+PACO class-disjoint split:
+
+- train: `1709` episodes, `55` classes
+- val: `355` episodes, `11` classes
+- test: `436` episodes, `13` classes
+
+PACO class-disjoint result:
+
+| setting | test MAE | test RMSE | test Pearson | test Spearman | test AUROC IoU<0.5 | test AUROC IoU<0.7 | test ECE | pred mean |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `tokens`, class split | 0.2837 | 0.3632 | 0.2196 | 0.2046 | 0.5990 | 0.6483 | 0.1331 | 0.3864 |
+| SAM `sam_score`, same split | 0.2673 | 0.3540 | 0.3747 | 0.3183 | 0.6586 | 0.7529 | 0.1476 | 0.5703 |
+
+PACO class-split read:
+
+- Unlike Pascal-Part, the token head does not beat `sam_score` on held-out PACO classes.
+- `sam_score` is overconfident, but it ranks PACO failures better than the current token head.
+- Token ECE is slightly better, but correlation/AUROC are weak; this suggests the current expected-IoU head is not yet robust to PACO's long-tail part distribution.
+- PACO should therefore be treated as a failure/generalization stress test for the current uncertainty representation.
+- Intervention remains the deciding metric: run support selection before changing the head.
 
 First support-selection debug after the head is trained:
 
