@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
@@ -16,6 +17,20 @@ FEATURE_KEYS = {
     "tokens": ("query_iou_token", "query_mask_token", "query_obj_ptr"),
     "tokens_mem": ("query_iou_token", "query_mask_token", "query_obj_ptr", "query_memory_summary"),
     "all_mask_tokens": ("query_iou_token", "query_mask_tokens", "query_obj_ptr"),
+    "tokens_match": (
+        "query_iou_token",
+        "query_mask_token",
+        "query_obj_ptr",
+        "support_iou_token",
+        "support_mask_token",
+        "support_obj_ptr",
+        "match_mask_absdiff",
+        "match_mask_product",
+        "match_mask_cosine",
+        "match_obj_absdiff",
+        "match_obj_product",
+        "match_obj_cosine",
+    ),
 }
 
 
@@ -37,13 +52,7 @@ class UncertaintyCacheDataset(Dataset):
         self.features = (self.features - self.mean) / self.std
 
     def _make_feature(self, record: dict[str, Any]) -> torch.Tensor:
-        parts = []
-        for key in self.feature_keys:
-            value = record[key]
-            if value is None:
-                raise ValueError(f"Missing feature `{key}` in cache record.")
-            parts.append(value.reshape(-1).float())
-        return torch.cat(parts)
+        return make_feature(record, self.feature_keys)
 
     def __len__(self) -> int:
         return len(self.records)
@@ -75,6 +84,39 @@ def set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+def _feature_tensor(record: dict[str, Any], key: str) -> torch.Tensor:
+    value = record.get(key)
+    if value is None:
+        raise ValueError(f"Missing feature `{key}` in cache record.")
+    if not isinstance(value, torch.Tensor):
+        value = torch.tensor(value)
+    return value.reshape(-1).float()
+
+
+def _cosine_feature(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+    return F.cosine_similarity(left.reshape(1, -1), right.reshape(1, -1), dim=1).float()
+
+
+def make_feature(record: dict[str, Any], feature_keys: tuple[str, ...]) -> torch.Tensor:
+    parts = []
+    for key in feature_keys:
+        if key == "match_mask_absdiff":
+            parts.append(torch.abs(_feature_tensor(record, "query_mask_token") - _feature_tensor(record, "support_mask_token")))
+        elif key == "match_mask_product":
+            parts.append(_feature_tensor(record, "query_mask_token") * _feature_tensor(record, "support_mask_token"))
+        elif key == "match_mask_cosine":
+            parts.append(_cosine_feature(_feature_tensor(record, "query_mask_token"), _feature_tensor(record, "support_mask_token")))
+        elif key == "match_obj_absdiff":
+            parts.append(torch.abs(_feature_tensor(record, "query_obj_ptr") - _feature_tensor(record, "support_obj_ptr")))
+        elif key == "match_obj_product":
+            parts.append(_feature_tensor(record, "query_obj_ptr") * _feature_tensor(record, "support_obj_ptr"))
+        elif key == "match_obj_cosine":
+            parts.append(_cosine_feature(_feature_tensor(record, "query_obj_ptr"), _feature_tensor(record, "support_obj_ptr")))
+        else:
+            parts.append(_feature_tensor(record, key))
+    return torch.cat(parts)
 
 
 def _record_class_id(record: dict[str, Any]) -> Any:

@@ -44,6 +44,7 @@ class SANSA(nn.Module):
         backbone_output: BackboneOutput = self._forward_backbone(samples, orig_size)
         outputs = {"masks": []}
         traces = []
+        support_traces = []
 
         n_shots = prompt_dict['shots']
         for b in range(B):
@@ -59,6 +60,8 @@ class SANSA(nn.Module):
                         decoder_out: DecoderOutput = self.sam._use_mask_as_output(backbone_output, frame_prompt, absolute_idx)
                     else:
                         decoder_out: DecoderOutput = self._compute_decoder_out_no_mem(backbone_output, absolute_idx, prompt_input=frame_prompt)
+                    if return_traces:
+                        support_traces.append(self._build_support_trace(decoder_out, b, idx, absolute_idx))
                         
                 else:
                     decoder_out: DecoderOutput = self._compute_decoder_out_w_mem(backbone_output, absolute_idx, idx, self.memory_bank)
@@ -75,6 +78,7 @@ class SANSA(nn.Module):
         result = {"pred_masks": masks}
         if return_traces:
             result["traces"] = traces
+            result["support_traces"] = support_traces
         return result
 
     def _preprocess_visual_features(
@@ -183,6 +187,24 @@ class SANSA(nn.Module):
             "query_mask_token": self._detach_cpu(decoder_out.selected_mask_token),
             "query_obj_ptr": self._detach_cpu(decoder_out.obj_ptr),
             "query_memory_summary": self._detach_cpu(decoder_out.memory_summary),
+        }
+
+    def _build_support_trace(
+        self, decoder_out: DecoderOutput, batch_idx: int, frame_idx: int, absolute_idx: int
+    ) -> Dict[str, Any]:
+        memory_summary = decoder_out.memory_summary
+        if memory_summary is None and decoder_out.pix_feat_with_mem is not None:
+            memory_summary = decoder_out.pix_feat_with_mem.mean(dim=(-2, -1))
+        return {
+            "batch_idx": batch_idx,
+            "frame_idx": frame_idx,
+            "absolute_idx": absolute_idx,
+            "support_sam_score": self._detach_cpu(decoder_out.ious),
+            "support_iou_token": self._detach_cpu(decoder_out.iou_token),
+            "support_mask_tokens": self._detach_cpu(decoder_out.mask_tokens),
+            "support_mask_token": self._detach_cpu(decoder_out.selected_mask_token),
+            "support_obj_ptr": self._detach_cpu(decoder_out.obj_ptr),
+            "support_memory_summary": self._detach_cpu(memory_summary),
         }
 
     @staticmethod

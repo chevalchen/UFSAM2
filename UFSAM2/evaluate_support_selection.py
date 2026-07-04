@@ -13,7 +13,7 @@ from tqdm import tqdm
 import opts
 from datasets import build_dataset
 from models.sansa.sansa import build_sansa
-from train_uncertainty_head import IoUHead
+from train_uncertainty_head import IoUHead, make_feature
 from util.commons import make_deterministic, resume_from_checkpoint, setup_logging
 from util.promptable_utils import build_prompt_dict
 
@@ -40,11 +40,34 @@ def _binary_iou(pred_mask: torch.Tensor, gt_mask: torch.Tensor) -> float:
     return (inter / union).item()
 
 
-def _trace_tensor(trace: dict[str, Any], key: str) -> torch.Tensor:
-    value = trace[key]
+def _squeeze_trace_tensor(trace: dict[str, Any], key: str) -> torch.Tensor | None:
+    value = trace.get(key)
     if value is None:
-        raise ValueError(f"Missing trace tensor `{key}`.")
-    return value.reshape(-1).float()
+        return None
+    return value.squeeze(0).cpu()
+
+
+def _aggregate_trace_tensor(traces: list[dict[str, Any]], key: str) -> torch.Tensor | None:
+    values = [_squeeze_trace_tensor(trace, key) for trace in traces]
+    values = [value for value in values if value is not None]
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+    return torch.stack(values).mean(dim=0)
+
+
+def _merge_support_trace(query_trace: dict[str, Any], support_traces: list[dict[str, Any]]) -> dict[str, Any]:
+    trace = dict(query_trace)
+    for key in (
+        "support_iou_token",
+        "support_mask_token",
+        "support_mask_tokens",
+        "support_obj_ptr",
+        "support_memory_summary",
+    ):
+        trace[key] = _aggregate_trace_tensor(support_traces, key)
+    return trace
 
 
 def load_uncertainty_head(ckpt_path: str, device: torch.device) -> tuple[IoUHead, tuple[str, ...], torch.Tensor, torch.Tensor]:
@@ -69,8 +92,7 @@ def predict_expected_iou(
     trace: dict[str, Any],
     device: torch.device,
 ) -> float:
-    parts = [_trace_tensor(trace, key) for key in feature_keys]
-    feature = torch.cat(parts).to(device)
+    feature = make_feature(trace, feature_keys).to(device)
     feature = (feature - mean) / std
     return head(feature.unsqueeze(0)).item()
 
@@ -103,7 +125,7 @@ def run_sansa_episode(
     pred_masks = F.interpolate(pred_masks, size=(img_h, img_w), mode="bilinear", align_corners=False)
     pred_query = (pred_masks.sigmoid() > args.threshold)[0, -1].cpu()
     true_iou = _binary_iou(pred_query, query_mask[0].cpu())
-    trace = outputs["traces"][-1]
+    trace = _merge_support_trace(outputs["traces"][-1], outputs.get("support_traces", []))
     sam_score = trace["sam_score"].flatten().max().item()
     return true_iou, sam_score, pred_query, trace
 

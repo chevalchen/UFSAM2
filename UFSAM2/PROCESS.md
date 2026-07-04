@@ -18,8 +18,10 @@
 ## Code State
 
 - `collect_uncertainty_cache.py`: collects per-episode metadata, true IoU, SAM score, query tokens, object pointer, memory summary, and area stats.
+  - Now also stores support-side trace aggregates: support IoU token, selected mask token, object pointer, memory summary.
 - `train_uncertainty_head.py`: trains expected-IoU MLP heads from cached traces.
   - Main feature set: `query_iou_token + query_mask_token + query_obj_ptr`.
+  - `tokens_match` adds support-side tokens plus query-support absdiff/product/cosine matching features.
   - Supports multiple `--cache_path` inputs for mixed/unified training.
   - Supports `--split_by dataset_class` and `--heldout_dataset`.
   - Writes `test_by_dataset` and `sam_score_test_by_dataset`.
@@ -29,7 +31,7 @@
   - `mask_decoder.py`: saves `last_iou_token_out`, `last_mask_tokens_out`.
   - `model_utils.py`: extends `DecoderOutput`.
   - `sam2_base.py`: fills token/output fields.
-  - `sansa.py`: supports `return_traces=True` for query frames.
+  - `sansa.py`: supports `return_traces=True` for query frames and `support_traces` for support frames.
 
 ## Environment
 
@@ -102,6 +104,19 @@ MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
   --output_dir output/uncertainty_head_mixed_fss_pascal_paco_1shot_dataset_class \
   --device cuda --epochs 200 --batch_size 128 \
   --feature_set tokens --split_by dataset_class
+```
+
+Support-query matching head, after recollecting caches with support-side traces:
+
+```bash
+MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
+  --cache_path \
+    output/fss_fold0_1shot_mask_uncertainty_match.pt \
+    output/pascal_part_fold0_1shot_mask_uncertainty_generalist_cf08_match.pt \
+    output/paco_part_fold0_1shot_mask_uncertainty_generalist_cf08_match.pt \
+  --output_dir output/uncertainty_head_mixed_tokens_match_fss_pascal_paco \
+  --device cuda --epochs 200 --batch_size 128 \
+  --feature_set tokens_match --split_by dataset_class
 ```
 
 Support selection:
@@ -291,11 +306,11 @@ Read: pseudo-query memory can hurt downstream queries, but current expected-IoU 
 
 ## Next Directions
 
-1. Add support-query matching features.
-   - Current cache only has query-side tokens plus coarse support area stats.
-   - Need support-side semantic traces or per-support embeddings.
-   - Candidate features: query/support token cosine, absolute difference, elementwise product, support mask quality proxies, area ratio, SAM score, and mixed-head score.
-   - First target: per-support expected IoU or pairwise ranking for support selection.
+1. Run the support-query matching head.
+   - First implementation is now in place: support-side traces plus `tokens_match`.
+   - Recollect 1-shot FSS/Pascal/PACO caches so the new support fields exist.
+   - Train mixed `tokens_match` head and rerun PACO 200-episode support selection for seeds 0/1.
+   - Success criterion: improve over mixed query-only head and move beyond all-supports, not just SAM-score.
 
 2. Keep mixed/unified and leave-one-dataset-out checks.
    - Mixed head showed PACO improvement, so it is a stronger default than PACO-only.

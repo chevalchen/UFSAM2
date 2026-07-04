@@ -36,6 +36,16 @@ def _tensor_or_none(trace: dict[str, Any], key: str) -> torch.Tensor | None:
     return value.squeeze(0).cpu()
 
 
+def _aggregate_trace_tensor(traces: list[dict[str, Any]], key: str) -> torch.Tensor | None:
+    values = [_tensor_or_none(trace, key) for trace in traces]
+    values = [value for value in values if value is not None]
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+    return torch.stack(values).mean(dim=0)
+
+
 def _binary_iou(pred_mask: torch.Tensor, gt_mask: torch.Tensor) -> float:
     pred_mask = pred_mask.bool()
     gt_mask = gt_mask.bool()
@@ -92,6 +102,7 @@ def collect_cache(model: torch.nn.Module, args: argparse.Namespace) -> list[dict
         pred_query = (pred_masks.sigmoid() > args.threshold)[0, -1].cpu()
         gt_query = query_mask[0].cpu()
         trace = outputs["traces"][-1]
+        support_traces = outputs.get("support_traces", [])
 
         sam_scores = _tensor_or_none(trace, "sam_score")
         sam_score = None if sam_scores is None else sam_scores.flatten().max().item()
@@ -116,6 +127,11 @@ def collect_cache(model: torch.nn.Module, args: argparse.Namespace) -> list[dict
             "query_mask_tokens": _tensor_or_none(trace, "query_mask_tokens"),
             "query_obj_ptr": _tensor_or_none(trace, "query_obj_ptr"),
             "query_memory_summary": _tensor_or_none(trace, "query_memory_summary"),
+            "support_iou_token": _aggregate_trace_tensor(support_traces, "support_iou_token"),
+            "support_mask_token": _aggregate_trace_tensor(support_traces, "support_mask_token"),
+            "support_mask_tokens": _aggregate_trace_tensor(support_traces, "support_mask_tokens"),
+            "support_obj_ptr": _aggregate_trace_tensor(support_traces, "support_obj_ptr"),
+            "support_memory_summary": _aggregate_trace_tensor(support_traces, "support_memory_summary"),
             "pred_area": pred_query.float().sum().item(),
             "gt_area": gt_query.float().sum().item(),
             "support_area_mean": support_areas.mean().item(),
