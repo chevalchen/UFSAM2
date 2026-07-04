@@ -553,6 +553,48 @@ CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_sele
   --output_path output/support_selection_paco_part_fold0_200_generalist_cf08.json
 ```
 
+PACO support-selection 200-episode result:
+
+| setting | mIoU | fail IoU<0.5 | risk IoU<0.7 |
+| --- | ---: | ---: | ---: |
+| random | 0.4540 | 53.5% | 70.5% |
+| SAM-score selected | 0.4867 | 48.0% | 64.5% |
+| token selected | 0.4921 | 48.5% | 68.0% |
+| oracle best | 0.5918 | 35.0% | 57.0% |
+| all supports | 0.5029 | 47.0% | 66.5% |
+
+Paired differences over 200 episodes:
+
+- token - random: `+0.0381 ± 0.0179` SE
+- token - SAM-score: `+0.0054 ± 0.0115` SE
+- token - all-supports: `-0.0108 ± 0.0145` SE
+- oracle - token: `+0.0997 ± 0.0119` SE
+
+Selection diagnostics:
+
+- token oracle match: `37.0%`
+- SAM-score oracle match: `36.0%`
+- token beats SAM-score: `27.0%`
+- token and SAM-score choose the same support in `102/200` episodes.
+- token beats all-supports in `42.0%` of episodes and loses in `55.0%`.
+
+High-spread subsets:
+
+| support spread threshold | episodes | random | SAM-score | token | all supports | oracle | token - SAM | token - all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `>0.05` | 171 | 0.4536 | 0.4920 | 0.4976 | 0.5111 | 0.6137 | +0.0056 | -0.0136 |
+| `>0.10` | 154 | 0.4311 | 0.4746 | 0.4800 | 0.4929 | 0.6050 | +0.0054 | -0.0129 |
+| `>0.20` | 126 | 0.4373 | 0.4894 | 0.4940 | 0.5083 | 0.6379 | +0.0047 | -0.0142 |
+| `>0.30` | 95 | 0.4339 | 0.5172 | 0.5178 | 0.5354 | 0.6796 | +0.0006 | -0.0176 |
+
+PACO support-selection read:
+
+- Token selection improves over random, but only marginally over SAM-score and not beyond the paired SE.
+- Token is below all-supports in mean mIoU and has worse `IoU<0.7` risk than both SAM-score and all-supports.
+- High-spread subsets do not reveal a Pascal-like token advantage; token and SAM-score are effectively tied there.
+- This matches the PACO calibration result: the current token head is weak under PACO's long-tail part distribution.
+- Before changing the head, run a larger or cross-seed PACO support-selection check because the current PACO sampler is stochastic.
+
 ## Notes
 
 - For FSS-1000, `--fold` is currently metadata only; the dataset split is controlled by `datasets/fss.py`.
