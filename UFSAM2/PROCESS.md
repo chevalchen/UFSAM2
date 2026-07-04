@@ -378,6 +378,63 @@ Cross-seed read:
 - Token consistently has lower failure/risk rates than all-supports, even when mean mIoU is tied.
 - The high-spread `>0.30` subset keeps the intended trend: token beats SAM-score in all seeds and is near/all-supports or above all-supports depending on the sampled episodes.
 
+## Memory-Propagation Risk Probe
+
+Important correction:
+
+- SANSA standard FSS inference does not use query-to-query sequential propagation.
+- Reference/support frames are encoded into memory without undergoing Memory Attention; this keeps target prediction invariant to support order.
+- At inference, each target/query is segmented independently given the annotated references.
+- Therefore this probe is a test-time sequential memory extension, not a SANSA baseline behavior.
+
+New script:
+
+- `evaluate_memory_propagation_risk.py`
+- Builds a chain `support -> q1 -> q2 -> q3`.
+- Compares:
+  - independent: each query is run as `support -> q_t`
+  - sequential: queries are run as `support -> q1 -> q2 -> q3`, so pseudo-query predictions are written to memory.
+- Defines harm as `independent_iou - sequential_iou`; positive harm means pseudo-query memory hurt that query.
+- First version supports class-indexed datasets such as Pascal-Part. PACO-Part needs a dedicated class-conditioned sampler because its current dataset class ignores `idx`.
+
+Smoke test passed with CPU/tiny for one Pascal-Part chain:
+
+```bash
+MPLCONFIGDIR=/tmp/matplotlib conda run -n sam2coco python evaluate_memory_propagation_risk.py \
+  --dataset_file pascal_part \
+  --prompt mask \
+  --shots 1 \
+  --fold 0 \
+  --sam2_version tiny \
+  --adaptformer_stages 2 3 \
+  --channel_factor 0.3 \
+  --device cpu \
+  --data_root /data6/chensq/datasets \
+  --chain_length 2 \
+  --max_chains 1 \
+  --output_path /tmp/memory_risk_smoke.json
+```
+
+Recommended Pascal-Part debug command:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_memory_propagation_risk.py \
+  --dataset_file pascal_part \
+  --prompt mask \
+  --shots 1 \
+  --fold 0 \
+  --sam2_version large \
+  --adaptformer_stages 2 3 \
+  --channel_factor 0.8 \
+  --device cuda \
+  --data_root /data6/chensq/datasets \
+  --resume pretrain/adapter_generalist.pth \
+  --head_ckpt output/uncertainty_head_pascal_part_fold0_1shot_class_split/uncertainty_head.pt \
+  --chain_length 3 \
+  --max_chains 100 \
+  --output_path output/memory_risk_pascal_part_fold0_100_generalist_cf08.json
+```
+
 ## Notes
 
 - For FSS-1000, `--fold` is currently metadata only; the dataset split is controlled by `datasets/fss.py`.
