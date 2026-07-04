@@ -456,7 +456,8 @@ Debug read:
 
 - Sequential memory extension has a real long-tail risk signal, but not a simple monotonic failure mode.
 - The current expected-IoU head is not yet a strong propagation-risk head.
-- Next useful step is to implement explicit memory gating during the sequential forward pass and compare: always sequential, support-only independent, random gating, score-threshold gating, and oracle gating.
+- Marker: pause this branch here. If resumed, implement explicit memory gating during the sequential forward pass and compare: always sequential, support-only independent, random gating, score-threshold gating, and oracle gating.
+- Main line continues with harder part-setting generalization, especially PACO-Part expected-IoU calibration and support selection.
 
 ## Notes
 
