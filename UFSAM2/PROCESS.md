@@ -534,7 +534,7 @@ PACO class-split read:
 - PACO should therefore be treated as a failure/generalization stress test for the current uncertainty representation.
 - Intervention remains the deciding metric: run support selection before changing the head.
 
-First support-selection debug after the head is trained:
+Support-selection debug after the head is trained:
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_selection.py \
@@ -553,30 +553,34 @@ CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_sele
   --output_path output/support_selection_paco_part_fold0_200_generalist_cf08.json
 ```
 
-PACO support-selection 200-episode result:
+Repeat with `--seed 1` and `--output_path output/support_selection_paco_part_fold0_200_generalist_cf08_seed1.json`.
+
+PACO support-selection cross-seed result, 2 seeds x 200 episodes:
 
 | setting | mIoU | fail IoU<0.5 | risk IoU<0.7 |
 | --- | ---: | ---: | ---: |
-| random | 0.4540 | 53.5% | 70.5% |
-| SAM-score selected | 0.4867 | 48.0% | 64.5% |
-| token selected | 0.4921 | 48.5% | 68.0% |
-| oracle best | 0.5918 | 35.0% | 57.0% |
-| all supports | 0.5029 | 47.0% | 66.5% |
+| random | 0.4520 | 54.3% | 71.8% |
+| SAM-score selected | 0.4830 | 49.3% | 65.3% |
+| token selected | 0.4858 | 50.0% | 67.8% |
+| all supports | 0.4948 | 48.5% | 66.5% |
+| oracle best | 0.5834 | 36.8% | 58.0% |
 
-Paired differences over 200 episodes:
+Per-seed support-selection summaries:
 
-- token - random: `+0.0381 ± 0.0179` SE
-- token - SAM-score: `+0.0054 ± 0.0115` SE
-- token - all-supports: `-0.0108 ± 0.0145` SE
-- oracle - token: `+0.0997 ± 0.0119` SE
+| seed | random | SAM-score | token | all supports | oracle | token - SAM | token - all |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.4540 | 0.4867 | 0.4921 | 0.5029 | 0.5918 | +0.0054 | -0.0108 |
+| 1 | 0.4500 | 0.4794 | 0.4794 | 0.4867 | 0.5750 | +0.0001 | -0.0073 |
 
-Selection diagnostics:
+Mean cross-seed differences:
 
-- token oracle match: `37.0%`
-- SAM-score oracle match: `36.0%`
-- token beats SAM-score: `27.0%`
-- token and SAM-score choose the same support in `102/200` episodes.
-- token beats all-supports in `42.0%` of episodes and loses in `55.0%`.
+- token - random: `+0.0338`
+- token - SAM-score: `+0.0027`
+- token - all-supports: `-0.0090`
+- oracle - token: `+0.0976`
+- token oracle match: `35.5%`
+- SAM-score oracle match: `32.5%`
+- token beats SAM-score: `27.8%`
 
 High-spread subsets:
 
@@ -589,11 +593,11 @@ High-spread subsets:
 
 PACO support-selection read:
 
-- Token selection improves over random, but only marginally over SAM-score and not beyond the paired SE.
-- Token is below all-supports in mean mIoU and has worse `IoU<0.7` risk than both SAM-score and all-supports.
+- Token selection improves over random, but the advantage over SAM-score is too small to count as a useful intervention gain.
+- Token is consistently below all-supports in mean mIoU and has worse `IoU<0.7` risk than both SAM-score and all-supports.
 - High-spread subsets do not reveal a Pascal-like token advantage; token and SAM-score are effectively tied there.
 - This matches the PACO calibration result: the current token head is weak under PACO's long-tail part distribution.
-- Before changing the head, run a larger or cross-seed PACO support-selection check because the current PACO sampler is stochastic.
+- Treat PACO support selection as a negative/weak-generalization result for the current expected-IoU head; do not use the tiny token-over-SAM difference as evidence.
 
 ## Notes
 
