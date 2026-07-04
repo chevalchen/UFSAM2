@@ -626,6 +626,26 @@ MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
   --split_by dataset_class
 ```
 
+Mixed/unified head result:
+
+| test set | scorer | MAE | Pearson | Spearman | AUROC IoU<0.5 | AUROC IoU<0.7 | ECE | pred mean |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| overall | mixed token | 0.1630 | 0.7476 | 0.7904 | 0.8673 | 0.9174 | 0.0578 | 0.5779 |
+| overall | SAM `sam_score` | 0.1520 | 0.7938 | 0.8374 | 0.9116 | 0.9449 | 0.0959 | 0.6769 |
+| FSS | mixed token | 0.0637 | 0.3609 | 0.6421 | 0.6097 | 0.6620 | 0.0335 | 0.9120 |
+| FSS | SAM `sam_score` | 0.0613 | 0.3206 | 0.7025 | 0.6013 | 0.6688 | 0.0588 | 0.9620 |
+| Pascal-Part | mixed token | 0.1488 | 0.5873 | 0.4923 | 0.7408 | 0.7559 | 0.0864 | 0.4978 |
+| Pascal-Part | SAM `sam_score` | 0.1311 | 0.6043 | 0.5584 | 0.7391 | 0.8282 | 0.0543 | 0.5788 |
+| PACO-Part | mixed token | 0.2430 | 0.4099 | 0.3722 | 0.6968 | 0.7724 | 0.1046 | 0.3523 |
+| PACO-Part | SAM `sam_score` | 0.2275 | 0.5938 | 0.5378 | 0.8551 | 0.8868 | 0.1469 | 0.4945 |
+
+Mixed/unified head read:
+
+- Mixed training improves PACO token ranking compared with the PACO-only token head, but it still loses clearly to `sam_score` on correlation and AUROC.
+- The main mixed-head gain is calibration, especially lower ECE and less overconfident predicted mean on FSS/PACO.
+- This is not yet enough for support selection, because intervention depends more on within-episode ranking than global calibration.
+- Next useful check is mixed-head support selection on PACO/Pascal; if PACO remains below all-supports, the current query-only token representation is the bottleneck.
+
 Leave-PACO-out head command:
 
 ```bash
