@@ -352,6 +352,32 @@ Full Pascal-Part Stage 3 read:
 - The oracle gap remains large, so the current token head is not a solved support-reliability estimator.
 - This is stronger Stage 3 evidence than FSS-1000 because Pascal-Part is lower-IoU, part-level, and not ceiling-limited.
 
+Cross-seed check, full 2500-episode support selection:
+
+| seed | random | SAM-score | token | all supports | oracle | token - random | token - SAM | token - all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.3905 | 0.4282 | 0.4643 | 0.4645 | 0.5636 | +0.0738 | +0.0361 | -0.0002 |
+| 1 | 0.3930 | 0.4232 | 0.4626 | 0.4591 | 0.5535 | +0.0695 | +0.0394 | +0.0034 |
+| 2 | 0.3977 | 0.4308 | 0.4592 | 0.4609 | 0.5563 | +0.0614 | +0.0284 | -0.0018 |
+| mean ± sd | 0.3938 ± 0.0037 | 0.4274 ± 0.0039 | 0.4620 ± 0.0026 | 0.4615 ± 0.0028 | 0.5578 ± 0.0052 | +0.0682 ± 0.0063 | +0.0346 ± 0.0057 | +0.0005 ± 0.0027 |
+
+Cross-seed risk check:
+
+| setting | fail IoU<0.5, seeds 0/1/2 | risk IoU<0.7, seeds 0/1/2 |
+| --- | ---: | ---: |
+| random | 59.28 / 58.88 / 57.88% | 79.12 / 78.44 / 78.80% |
+| SAM-score selected | 53.44 / 53.88 / 52.56% | 74.32 / 73.56 / 73.48% |
+| token selected | 48.76 / 48.56 / 48.56% | 70.00 / 70.28 / 70.52% |
+| all supports | 49.84 / 49.76 / 49.48% | 72.32 / 71.92 / 72.28% |
+
+Cross-seed read:
+
+- The Pascal-Part support-selection conclusion is not an episode-seed artifact.
+- Token selection is consistently better than random and SAM-score in all three seeds.
+- Token and all-supports remain statistically tied globally across seeds.
+- Token consistently has lower failure/risk rates than all-supports, even when mean mIoU is tied.
+- The high-spread `>0.30` subset keeps the intended trend: token beats SAM-score in all seeds and is near/all-supports or above all-supports depending on the sampled episodes.
+
 ## Notes
 
 - For FSS-1000, `--fold` is currently metadata only; the dataset split is controlled by `datasets/fss.py`.
