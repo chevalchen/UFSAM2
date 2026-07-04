@@ -435,6 +435,29 @@ CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_memory_propa
   --output_path output/memory_risk_pascal_part_fold0_100_generalist_cf08.json
 ```
 
+Pascal-Part 100-chain debug result:
+
+| query | independent mIoU | sequential mIoU | mean harm | harm>0.01 | harm>0.05 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| q1 | 0.4057 | 0.4057 | 0.0000 | 0.0% | 0.0% |
+| q2 | 0.3765 | 0.3589 | +0.0176 | 31.0% | 18.0% |
+| q3 | 0.4104 | 0.4116 | -0.0012 | 37.0% | 18.0% |
+| downstream q2/q3 | 0.3935 | 0.3853 | +0.0082 | 34.0% | 18.0% |
+
+Additional debug observations:
+
+- q1 is effectively identical because both paths read only support memory.
+- q2 is hurt on average, which confirms pseudo-query memory can contaminate downstream prediction.
+- q3 mean recovers, but the distribution is wide: downstream harm ranges roughly from `-0.648` to `+0.648`.
+- The current Pascal expected-IoU head is weak for predicting next-step harm: `prev_token_score_vs_next_harm_pearson = -0.102`.
+- A rough offline gating proxy can improve over always sequential by about `+0.01` downstream mIoU, but a real gating script is needed because independent-vs-sequential replay is not equivalent to selectively dropping only one pseudo-query memory.
+
+Debug read:
+
+- Sequential memory extension has a real long-tail risk signal, but not a simple monotonic failure mode.
+- The current expected-IoU head is not yet a strong propagation-risk head.
+- Next useful step is to implement explicit memory gating during the sequential forward pass and compare: always sequential, support-only independent, random gating, score-threshold gating, and oracle gating.
+
 ## Notes
 
 - For FSS-1000, `--fold` is currently metadata only; the dataset split is controlled by `datasets/fss.py`.
