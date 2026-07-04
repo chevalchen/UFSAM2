@@ -84,6 +84,34 @@ def _record_class_id(record: dict[str, Any]) -> Any:
     return class_id
 
 
+def _record_dataset(record: dict[str, Any]) -> str:
+    dataset = record.get("dataset", "unknown")
+    if isinstance(dataset, torch.Tensor):
+        return str(dataset.item())
+    return str(dataset)
+
+
+def _record_group_key(record: dict[str, Any], split_by: str) -> Any:
+    if split_by == "class_id":
+        return _record_class_id(record)
+    if split_by == "dataset_class":
+        return (_record_dataset(record), _record_class_id(record))
+    raise ValueError(f"Unsupported grouped split: {split_by}")
+
+
+def load_cache_records(cache_paths: list[str]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for cache_path in cache_paths:
+        cache_records = torch.load(cache_path, map_location="cpu", weights_only=False)
+        if not isinstance(cache_records, list):
+            raise ValueError(f"Expected `{cache_path}` to contain a list of records.")
+        for record in cache_records:
+            copied = dict(record)
+            copied["source_cache"] = cache_path
+            records.append(copied)
+    return records
+
+
 def split_records_random(
     records: list[dict[str, Any]], seed: int, train_ratio: float, val_ratio: float
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -102,21 +130,21 @@ def split_records_random(
     )
 
 
-def split_records_by_class(
-    records: list[dict[str, Any]], seed: int, train_ratio: float, val_ratio: float
+def split_records_by_group(
+    records: list[dict[str, Any]], split_by: str, seed: int, train_ratio: float, val_ratio: float
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    class_ids = sorted({_record_class_id(record) for record in records})
+    group_ids = sorted({_record_group_key(record, split_by) for record in records})
     rng = random.Random(seed)
-    rng.shuffle(class_ids)
-    n_train = int(len(class_ids) * train_ratio)
-    n_val = int(len(class_ids) * val_ratio)
-    train_classes = set(class_ids[:n_train])
-    val_classes = set(class_ids[n_train : n_train + n_val])
-    test_classes = set(class_ids[n_train + n_val :])
+    rng.shuffle(group_ids)
+    n_train = int(len(group_ids) * train_ratio)
+    n_val = int(len(group_ids) * val_ratio)
+    train_groups = set(group_ids[:n_train])
+    val_groups = set(group_ids[n_train : n_train + n_val])
+    test_groups = set(group_ids[n_train + n_val :])
     return (
-        [record for record in records if _record_class_id(record) in train_classes],
-        [record for record in records if _record_class_id(record) in val_classes],
-        [record for record in records if _record_class_id(record) in test_classes],
+        [record for record in records if _record_group_key(record, split_by) in train_groups],
+        [record for record in records if _record_group_key(record, split_by) in val_groups],
+        [record for record in records if _record_group_key(record, split_by) in test_groups],
     )
 
 
@@ -129,15 +157,32 @@ def split_records(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     if split_by == "random":
         return split_records_random(records, seed, train_ratio, val_ratio)
-    if split_by == "class_id":
-        return split_records_by_class(records, seed, train_ratio, val_ratio)
+    if split_by in {"class_id", "dataset_class"}:
+        return split_records_by_group(records, split_by, seed, train_ratio, val_ratio)
     raise ValueError(f"Unsupported split_by: {split_by}")
 
 
-def split_summary(records: list[dict[str, Any]]) -> dict[str, int]:
+def split_train_val(
+    records: list[dict[str, Any]],
+    split_by: str,
+    seed: int,
+    train_ratio: float,
+    val_ratio: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    train_records, val_records, rest_records = split_records(records, split_by, seed, train_ratio, val_ratio)
+    return train_records + rest_records, val_records
+
+
+def split_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    dataset_counts: dict[str, int] = {}
+    for record in records:
+        dataset = _record_dataset(record)
+        dataset_counts[dataset] = dataset_counts.get(dataset, 0) + 1
     return {
         "episodes": len(records),
         "classes": len({_record_class_id(record) for record in records}),
+        "dataset_classes": len({(_record_dataset(record), _record_class_id(record)) for record in records}),
+        "datasets": dataset_counts,
     }
 
 
@@ -237,21 +282,55 @@ def evaluate_sam_score(records: list[dict[str, Any]], n_bins: int) -> dict[str, 
     return score_metrics(pred, target, n_bins)
 
 
+def evaluate_sam_score_by_dataset(records: list[dict[str, Any]], n_bins: int) -> dict[str, dict[str, float]]:
+    out = {}
+    for dataset in sorted({_record_dataset(record) for record in records}):
+        dataset_records = [record for record in records if _record_dataset(record) == dataset]
+        out[dataset] = evaluate_sam_score(dataset_records, n_bins)
+    return out
+
+
+def evaluate_records_by_dataset(
+    model: nn.Module,
+    records: list[dict[str, Any]],
+    feature_keys: tuple[str, ...],
+    mean: torch.Tensor,
+    std: torch.Tensor,
+    device: torch.device,
+    n_bins: int,
+    batch_size: int,
+) -> dict[str, dict[str, float]]:
+    out = {}
+    for dataset_name in sorted({_record_dataset(record) for record in records}):
+        dataset_records = [record for record in records if _record_dataset(record) == dataset_name]
+        dataset = UncertaintyCacheDataset(dataset_records, feature_keys, mean, std)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        out[dataset_name] = evaluate(model, loader, device, n_bins)
+    return out
+
+
 def train(args: argparse.Namespace) -> dict[str, Any]:
     set_seed(args.seed)
     device = torch.device(args.device)
-    records = torch.load(args.cache_path, map_location="cpu", weights_only=False)
+    records = load_cache_records(args.cache_path)
     if args.max_records is not None:
         records = records[: args.max_records]
 
     feature_keys = FEATURE_KEYS[args.feature_set]
-    train_records, val_records, test_records = split_records(
-        records, args.split_by, args.seed, args.train_ratio, args.val_ratio
-    )
+    if args.heldout_dataset:
+        test_records = [record for record in records if _record_dataset(record) == args.heldout_dataset]
+        trainval_records = [record for record in records if _record_dataset(record) != args.heldout_dataset]
+        train_records, val_records = split_train_val(
+            trainval_records, args.split_by, args.seed, args.train_ratio, args.val_ratio
+        )
+    else:
+        train_records, val_records, test_records = split_records(
+            records, args.split_by, args.seed, args.train_ratio, args.val_ratio
+        )
     if not train_records or not val_records or not test_records:
         raise ValueError(
             "Empty split after splitting records. "
-            f"split_by={args.split_by}, sizes="
+            f"split_by={args.split_by}, heldout_dataset={args.heldout_dataset}, sizes="
             f"{len(train_records)}/{len(val_records)}/{len(test_records)}. "
             "Use a larger cache or adjust --train_ratio/--val_ratio."
         )
@@ -262,8 +341,10 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
                 "val": evaluate_sam_score(val_records, args.ece_bins),
                 "test": evaluate_sam_score(test_records, args.ece_bins),
             },
+            "sam_score_test_by_dataset": evaluate_sam_score_by_dataset(test_records, args.ece_bins),
             "split": {
                 "split_by": args.split_by,
+                "heldout_dataset": args.heldout_dataset,
                 "train": split_summary(train_records),
                 "val": split_summary(val_records),
                 "test": split_summary(test_records),
@@ -325,13 +406,18 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
         "train": evaluate(model, train_loader, device, args.ece_bins),
         "val": evaluate(model, val_loader, device, args.ece_bins),
         "test": evaluate(model, test_loader, device, args.ece_bins),
+        "test_by_dataset": evaluate_records_by_dataset(
+            model, test_records, feature_keys, train_ds.mean, train_ds.std, device, args.ece_bins, args.batch_size
+        ),
         "sam_score": {
             "train": evaluate_sam_score(train_records, args.ece_bins),
             "val": evaluate_sam_score(val_records, args.ece_bins),
             "test": evaluate_sam_score(test_records, args.ece_bins),
         },
+        "sam_score_test_by_dataset": evaluate_sam_score_by_dataset(test_records, args.ece_bins),
         "split": {
             "split_by": args.split_by,
+            "heldout_dataset": args.heldout_dataset,
             "train": split_summary(train_records),
             "val": split_summary(val_records),
             "test": split_summary(test_records),
@@ -349,7 +435,7 @@ def train(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser("Train a lightweight expected-IoU head on SANSA traces.")
-    parser.add_argument("--cache_path", type=str, required=True)
+    parser.add_argument("--cache_path", type=str, nargs="+", required=True)
     parser.add_argument("--output_dir", type=str, default="output/uncertainty_head")
     parser.add_argument("--feature_set", type=str, default="tokens", choices=sorted(FEATURE_KEYS))
     parser.add_argument("--device", type=str, default="cuda")
@@ -363,7 +449,8 @@ def main() -> None:
     parser.add_argument("--smooth_l1_beta", type=float, default=0.05)
     parser.add_argument("--train_ratio", type=float, default=0.7)
     parser.add_argument("--val_ratio", type=float, default=0.15)
-    parser.add_argument("--split_by", type=str, default="random", choices=["random", "class_id"])
+    parser.add_argument("--split_by", type=str, default="random", choices=["random", "class_id", "dataset_class"])
+    parser.add_argument("--heldout_dataset", type=str, default=None)
     parser.add_argument("--ece_bins", type=int, default=10)
     parser.add_argument("--max_records", type=int, default=None)
     parser.add_argument("--eval_sam_score_only", action="store_true", default=False)

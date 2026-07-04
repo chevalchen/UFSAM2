@@ -77,6 +77,10 @@
   - New script for Stage 1 expected-IoU MLP training.
   - Default feature set is `query_iou_token + query_mask_token + query_obj_ptr`.
   - Reports MAE, RMSE, Pearson, Spearman, AUROC for IoU risk thresholds, ECE, and risk-coverage.
+  - Supports mixed/unified training with multiple `--cache_path` inputs.
+  - Supports `--split_by dataset_class` to avoid class-id collisions across datasets.
+  - Supports leave-one-dataset-out testing with `--heldout_dataset`.
+  - Writes `test_by_dataset` metrics for mixed/unified heads.
 
 - `evaluate_support_selection.py`
   - New script for minimal Stage 3 intervention.
@@ -598,6 +602,46 @@ PACO support-selection read:
 - High-spread subsets do not reveal a Pascal-like token advantage; token and SAM-score are effectively tied there.
 - This matches the PACO calibration result: the current token head is weak under PACO's long-tail part distribution.
 - Treat PACO support selection as a negative/weak-generalization result for the current expected-IoU head; do not use the tiny token-over-SAM difference as evidence.
+
+Next minimal mainline after weak PACO intervention:
+
+- Train a mixed/unified head before adding new mechanisms.
+- Use `dataset_class` splitting so repeated integer `class_id` values across FSS/Pascal/PACO do not leak.
+- Use leave-one-dataset-out heads to separate true error prediction from dataset-distribution recognition.
+- Defer support-query matching features until the cache includes support-side semantic traces; current cache only has query-side tokens plus coarse support area stats.
+
+Mixed/unified head command:
+
+```bash
+MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
+  --cache_path \
+    output/fss_fold0_1shot_mask_uncertainty.pt \
+    output/pascal_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt \
+    output/paco_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt \
+  --output_dir output/uncertainty_head_mixed_fss_pascal_paco_1shot_dataset_class \
+  --device cuda \
+  --epochs 200 \
+  --batch_size 128 \
+  --feature_set tokens \
+  --split_by dataset_class
+```
+
+Leave-PACO-out head command:
+
+```bash
+MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
+  --cache_path \
+    output/fss_fold0_1shot_mask_uncertainty.pt \
+    output/pascal_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt \
+    output/paco_part_fold0_1shot_mask_uncertainty_generalist_cf08.pt \
+  --output_dir output/uncertainty_head_lodo_paco_1shot_dataset_class \
+  --device cuda \
+  --epochs 200 \
+  --batch_size 128 \
+  --feature_set tokens \
+  --split_by dataset_class \
+  --heldout_dataset paco_part
+```
 
 ## Notes
 
