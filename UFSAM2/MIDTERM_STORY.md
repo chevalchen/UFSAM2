@@ -40,7 +40,27 @@ Our adaptation to SANSA keeps this spirit but changes the target:
 
 ## Proposed Method Story
 
-### Module A: Uncertainty-Aware Support Reliability
+### Module A: Uncertainty-Guided Ambiguity Refinement
+
+Target SANSA failure modes:
+
+- fuzzy object/part boundaries;
+- small or thin parts;
+- support-query semantic mismatch;
+- ambiguous part masks.
+
+Candidate actions:
+
+- horizontal-flip TTA only for risky predictions;
+- boundary refinement module for uncertain boundary regions;
+- later: uncertainty-gated local refinement instead of unconditional mask editing.
+
+Current status:
+
+- TTA summary gives preliminary evidence that hflip and BRM+hflip can improve SANSA-side inference;
+- this branch should be kept separate from the frozen uncertainty baseline because BRM introduces a trainable refinement checkpoint.
+
+### Module B: Uncertainty-Aware Support Reliability
 
 Input:
 
@@ -64,26 +84,6 @@ Action:
 
 This is the current main validated module.
 
-### Module B: Uncertainty-Guided Ambiguity Refinement
-
-Target SANSA failure modes:
-
-- fuzzy object/part boundaries;
-- small or thin parts;
-- support-query semantic mismatch;
-- ambiguous part masks.
-
-Candidate actions:
-
-- horizontal-flip TTA only for risky predictions;
-- boundary refinement module for uncertain boundary regions;
-- later: uncertainty-gated local refinement instead of unconditional mask editing.
-
-Current status:
-
-- TTA summary gives preliminary evidence that hflip and BRM+hflip can improve SANSA-side inference;
-- this branch should be kept separate from the frozen uncertainty baseline because BRM introduces a trainable refinement checkpoint.
-
 ### A+B Combined View
 
 The intended midterm architecture can be presented as:
@@ -100,18 +100,18 @@ Support set + query image
   +-------------------------+
   |                         |
 Module A                 Module B
-support reliability      ambiguity-aware TTA/refinement
+ambiguity refinement     support reliability
   |                         |
-selected / weighted       refine only when uncertain
-support decision
+refine only when         selected / weighted
+uncertain                support decision
         |
 final mask
 ```
 
 For the midterm report, the clean claim is:
 
-- Module A already has positive intervention evidence on Pascal-Part.
-- Module B is supported by completed TTA/BRM observations and should be the next engineering branch.
+- Module A is supported by completed TTA/BRM observations and should be the next engineering branch.
+- Module B already has positive intervention evidence on Pascal-Part.
 - A+B combined experiments are the immediate next step, not yet the final claim.
 
 ## Current Evidence
@@ -200,7 +200,7 @@ Read:
 - but the support-selection gain does not robustly exceed all-supports;
 - PACO should be presented as a stress test and motivation for pairwise ranking / fallback policies.
 
-### 5. TTA / BRM Evidence For Module B
+### 5. TTA / BRM Evidence For Module A
 
 From `TTA_SUM.md`:
 
@@ -271,8 +271,8 @@ SANSA lacks explicit uncertainty awareness:
 
 Uncertainty layer on top of frozen SANSA:
 
-- Module A: support reliability selection;
-- Module B: ambiguity-aware TTA/refinement;
+- Module A: ambiguity-aware TTA/refinement;
+- Module B: support reliability selection;
 - shared signal: decoder-token uncertainty.
 
 ### Slide 6: Implementation
@@ -326,7 +326,7 @@ Main sentence:
 
 ## Minimal Next Experiments For A Strong Midterm
 
-### Experiment A1: Pairwise Support Ranking
+### Experiment B1: Pairwise Support Ranking
 
 Current expected-IoU regression is useful but not directly optimized for choosing the best support.
 
@@ -341,7 +341,7 @@ Success criterion:
 - beat SAM-score and all-supports on Pascal-Part;
 - on PACO, improve over mixed token and reduce the gap to oracle.
 
-### Experiment A2: Hybrid Support Policy
+### Experiment B2: Hybrid Support Policy
 
 Policy:
 
@@ -358,7 +358,55 @@ Baselines:
 
 This is likely stronger than always choosing exactly one support.
 
-### Experiment B1: Uncertainty-Gated HFlip
+### Experiment B3: Standard FSS Benchmark For Support Reliability
+
+To make Module B more authoritative, run support-reliability evaluation on the standard COCO-20i benchmark with SANSA's per-fold pretrained adapters.
+
+Use local checkpoints:
+
+- `pretrain/coco-20i-4/adapter_coco_fold0.pth`
+- `pretrain/coco-20i-4/adapter_coco_fold1.pth`
+- `pretrain/coco-20i-4/adapter_coco_fold2.pth`
+- `pretrain/coco-20i-4/adapter_coco_fold3.pth`
+
+Report two metric families:
+
+1. official-style FSS metrics:
+   - class-level mIoU;
+   - FB-IoU;
+   - accumulated with the same `AverageMeter`/`Evaluator` logic as SANSA inference.
+
+2. support-selection diagnostics:
+   - episode-average IoU;
+   - token-vs-SAM support choice;
+   - oracle gap;
+   - failure/risk rates.
+
+This makes the support-reliability module less dependent on Pascal-Part/PACO-Part custom part datasets and ties it back to a standard few-shot segmentation benchmark.
+
+Recommended COCO-20i command shape:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 MPLCONFIGDIR=/tmp/matplotlib python evaluate_support_selection.py \
+  --seed 0 \
+  --dataset_file coco \
+  --prompt mask \
+  --shots 5 \
+  --fold 0 \
+  --sam2_version large \
+  --adaptformer_stages 2 3 \
+  --channel_factor 0.3 \
+  --device cuda \
+  --data_root /data6/chensq/datasets \
+  --resume pretrain/coco-20i-4/adapter_coco_fold0.pth \
+  --head_ckpt output/uncertainty_head_coco_fold0/uncertainty_head.pt \
+  --official_metrics \
+  --output_path output/support_selection_coco_fold0_5shot_seed0.json
+```
+
+Repeat folds `0..3`, changing both `--fold` and `--resume`.
+
+### Experiment A1: Uncertainty-Gated HFlip
 
 Policy:
 
@@ -374,7 +422,7 @@ Report:
 
 This turns hflip from generic TTA into uncertainty-guided TTA.
 
-### Experiment B2: Boundary Refinement With Uncertainty Gate
+### Experiment A2: Boundary Refinement With Uncertainty Gate
 
 Keep BRM as a separate trainable branch:
 
@@ -402,4 +450,3 @@ Avoid overclaiming:
 - Do not say PACO is already solved.
 - Do not compare support-selection avg IoU directly with official fold mIoU.
 - Do not merge BRM into the frozen uncertainty baseline without naming it as a separate trainable refinement module.
-

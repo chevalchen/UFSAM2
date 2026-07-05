@@ -15,6 +15,7 @@ from datasets import build_dataset
 from models.sansa.sansa import build_sansa
 from train_uncertainty_head import IoUHead, make_feature
 from util.commons import make_deterministic, resume_from_checkpoint, setup_logging
+from util.metrics import AverageMeter, Evaluator
 from util.promptable_utils import build_prompt_dict
 
 
@@ -146,15 +147,50 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     return summary
 
 
-def save_results(path: str, records: list[dict[str, Any]], args: argparse.Namespace) -> None:
+def summarize_official_metrics(meters: dict[str, AverageMeter] | None) -> dict[str, dict[str, float]]:
+    if meters is None:
+        return {}
+    summary = {}
+    for key, meter in meters.items():
+        miou, fb_iou, _ = meter.compute_iou()
+        summary[key] = {
+            "miou": miou,
+            "fb_iou": fb_iou.item() if isinstance(fb_iou, torch.Tensor) else float(fb_iou),
+        }
+    return summary
+
+
+def save_results(
+    path: str,
+    records: list[dict[str, Any]],
+    args: argparse.Namespace,
+    official_metrics: dict[str, dict[str, float]] | None = None,
+) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     payload = {
         "summary": summarize(records),
         "records": records,
         "args": vars(args),
     }
+    if official_metrics:
+        payload["official_metrics"] = official_metrics
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
+
+
+def update_official_meter(
+    meter: AverageMeter,
+    pred_mask: torch.Tensor,
+    batch: dict[str, Any],
+    device: torch.device,
+) -> None:
+    area_inter, area_union = Evaluator.classify_prediction(
+        pred_mask.unsqueeze(0).float(),
+        batch,
+        device=device,
+    )
+    class_id = batch["class_id"].to(meter.class_counter.device)
+    meter.update(area_inter, area_union, class_id)
 
 
 def evaluate(model: torch.nn.Module, args: argparse.Namespace) -> list[dict[str, Any]]:
@@ -163,6 +199,13 @@ def evaluate(model: torch.nn.Module, args: argparse.Namespace) -> list[dict[str,
     dataloader = DataLoader(ds, batch_size=1, shuffle=False, num_workers=args.num_workers)
     head_device = torch.device(args.head_device)
     head, feature_keys, mean_vec, std_vec = load_uncertainty_head(args.head_ckpt, head_device)
+    eval_device = torch.device(args.device)
+    official_meters = None
+    if args.official_metrics:
+        official_meters = {
+            key: AverageMeter(validation_ds, ds.class_ids, ds.nclass)
+            for key in ("random", "sam_score", "token", "oracle", "all_supports")
+        }
 
     model.eval()
     rng = random.Random(args.seed)
@@ -179,8 +222,9 @@ def evaluate(model: torch.nn.Module, args: argparse.Namespace) -> list[dict[str,
         n_supports = support_imgs.shape[1]
 
         per_support = []
+        pred_by_idx = {}
         for support_idx in range(n_supports):
-            true_iou, sam_score, _, trace = run_sansa_episode(
+            true_iou, sam_score, pred_query, trace = run_sansa_episode(
                 model,
                 support_imgs,
                 support_masks,
@@ -189,6 +233,7 @@ def evaluate(model: torch.nn.Module, args: argparse.Namespace) -> list[dict[str,
                 [support_idx],
                 args,
             )
+            pred_by_idx[support_idx] = pred_query
             token_score = predict_expected_iou(head, feature_keys, mean_vec, std_vec, trace, head_device)
             per_support.append(
                 {
@@ -199,7 +244,7 @@ def evaluate(model: torch.nn.Module, args: argparse.Namespace) -> list[dict[str,
                 }
             )
 
-        all_iou, all_sam_score, _, all_trace = run_sansa_episode(
+        all_iou, all_sam_score, all_pred_query, all_trace = run_sansa_episode(
             model,
             support_imgs,
             support_masks,
@@ -215,6 +260,13 @@ def evaluate(model: torch.nn.Module, args: argparse.Namespace) -> list[dict[str,
         token_idx = max(per_support, key=lambda item: item["token_score"])["support_idx"]
         oracle_idx = max(per_support, key=lambda item: item["true_iou"])["support_idx"]
         iou_by_idx = {item["support_idx"]: item["true_iou"] for item in per_support}
+
+        if official_meters is not None:
+            update_official_meter(official_meters["random"], pred_by_idx[random_idx], batch, eval_device)
+            update_official_meter(official_meters["sam_score"], pred_by_idx[sam_idx], batch, eval_device)
+            update_official_meter(official_meters["token"], pred_by_idx[token_idx], batch, eval_device)
+            update_official_meter(official_meters["oracle"], pred_by_idx[oracle_idx], batch, eval_device)
+            update_official_meter(official_meters["all_supports"], all_pred_query, batch, eval_device)
 
         record = {
             "episode_idx": episode_idx,
@@ -245,7 +297,7 @@ def evaluate(model: torch.nn.Module, args: argparse.Namespace) -> list[dict[str,
         records.append(record)
 
         if args.save_every > 0 and len(records) % args.save_every == 0:
-            save_results(args.output_path, records, args)
+            save_results(args.output_path, records, args, summarize_official_metrics(official_meters))
 
         summary = summarize(records)
         pbar.set_postfix(
@@ -256,7 +308,7 @@ def evaluate(model: torch.nn.Module, args: argparse.Namespace) -> list[dict[str,
             all=f"{summary['miou_all_supports']:.3f}",
         )
 
-    return records
+    return records, official_meters
 
 
 def main(args: argparse.Namespace) -> None:
@@ -272,9 +324,13 @@ def main(args: argparse.Namespace) -> None:
     if args.resume:
         resume_from_checkpoint(args.resume, model)
 
-    records = evaluate(model, args)
-    save_results(args.output_path, records, args)
-    print(json.dumps(summarize(records), indent=2))
+    records, official_meters = evaluate(model, args)
+    official_summary = summarize_official_metrics(official_meters)
+    save_results(args.output_path, records, args, official_summary)
+    summary = summarize(records)
+    if official_summary:
+        summary["official_metrics"] = official_summary
+    print(json.dumps(summary, indent=2))
     print(f"Saved support-selection results to {args.output_path}")
 
 
@@ -285,6 +341,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", type=str, default="output/support_selection.json")
     parser.add_argument("--max_episodes", type=int, default=None)
     parser.add_argument("--save_every", type=int, default=20)
+    parser.add_argument("--official_metrics", action="store_true", default=False)
     args = parser.parse_args()
     args.output_dir = join(args.output_dir, args.name_exp)
     main(args)

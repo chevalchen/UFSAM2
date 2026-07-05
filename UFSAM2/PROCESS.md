@@ -26,6 +26,7 @@
   - Supports `--split_by dataset_class` and `--heldout_dataset`.
   - Writes `test_by_dataset` and `sam_score_test_by_dataset`.
 - `evaluate_support_selection.py`: 5-shot intervention. Runs each support independently as 1-shot, then compares random, SAM-score, token-head, all-supports, and oracle.
+  - Optional `--official_metrics` also accumulates SANSA-style class mIoU / FB-IoU for each support-selection strategy.
 - `evaluate_memory_propagation_risk.py`: side-branch probe for test-time sequential pseudo-query memory.
 - SANSA/SAM2 trace hooks:
   - `mask_decoder.py`: saves `last_iou_token_out`, `last_mask_tokens_out`.
@@ -365,3 +366,8 @@ Read: pseudo-query memory can hurt downstream queries, but current expected-IoU 
 
 4. Do not expand to joint training/memory gating yet.
    - Frozen SANSA + post-hoc uncertainty remains the cleanest current story.
+
+5. Add a standard FSS benchmark for Module B.
+   - Use COCO-20i 4-fold with SANSA per-fold pretrained adapters under `pretrain/coco-20i-4/`.
+   - Report both official-style mIoU/FB-IoU and support-selection avg IoU.
+   - This makes support reliability evidence more authoritative than Pascal-Part/PACO-only diagnostics.
