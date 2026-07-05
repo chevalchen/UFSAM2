@@ -257,6 +257,24 @@ Mixed FSS+Pascal+PACO head:
 | PACO | mixed token | 0.2430 | 0.4099 | 0.3722 | 0.6968 | 0.7724 | 0.1046 |
 | PACO | SAM `sam_score` | 0.2275 | 0.5938 | 0.5378 | 0.8551 | 0.8868 | 0.1469 |
 
+Mixed `tokens_match` head:
+
+| test set | scorer | MAE | Pearson | Spearman | AUROC<0.5 | AUROC<0.7 | ECE |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| overall | `tokens_match` | 0.1550 | 0.7646 | 0.8075 | 0.8835 | 0.9227 | 0.0530 |
+| overall | mixed token | 0.1630 | 0.7476 | 0.7904 | 0.8673 | 0.9174 | 0.0578 |
+| Pascal-Part | `tokens_match` | 0.1356 | 0.5916 | 0.5760 | 0.7745 | 0.8420 | 0.0506 |
+| Pascal-Part | mixed token | 0.1488 | 0.5873 | 0.4923 | 0.7408 | 0.7559 | 0.0864 |
+| PACO-Part | `tokens_match` | 0.2281 | 0.4756 | 0.4446 | 0.7494 | 0.7878 | 0.0975 |
+| PACO-Part | mixed token | 0.2430 | 0.4099 | 0.3722 | 0.6968 | 0.7724 | 0.1046 |
+
+Matching-head read:
+
+- Support-query matching features improve the mixed token head on overall metrics, Pascal-Part, and PACO-Part.
+- Pascal-Part ranking improves most strongly: AUROC<0.7 rises from `0.7559` to `0.8420`.
+- PACO-Part improves but still trails SAM-score in correlation and AUROC; intervention remains the deciding check.
+- Next check: rerun PACO support selection with the `tokens_match` head for seeds 0/1.
+
 Mixed-head PACO support selection, 2 seeds x 200 episodes:
 
 | setting | PACO-only token | mixed token |
