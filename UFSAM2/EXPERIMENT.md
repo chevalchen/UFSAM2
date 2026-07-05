@@ -143,6 +143,24 @@ Conclusion:
 - This should be treated as generalist part-segmentation evidence, not the final strict FSS main claim.
 - The gate uses the Pascal-Part fold0 1-shot uncertainty head cross-fold; this is acceptable for the first full run, but a paper-critical version should consider fold-specific or leave-one-fold-out heads.
 
+Full 4-fold BRM always + UQ-gated hflip at threshold `0.3`:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 1017 | 37.29 | 64.70 |
+| 1 | 959 | 112 | 66.00 | 72.83 |
+| 2 | 2500 | 908 | 38.64 | 65.53 |
+| 3 | 2500 | 378 | 56.83 | 76.09 |
+| mean | - | - | 49.69 | 69.79 |
+
+Total trigger rate: `2415/8459 = 28.6%`.
+
+Conclusion:
+
+- BRM always + UQ-gated hflip is slightly better than UQ-gated hflip-only in mIoU: `49.69` vs `49.48`, but FB-IoU is essentially tied/slightly lower: `69.79` vs `69.83`.
+- Compared with prior BRM + unconditional hflip (`49.61 / 69.82` from `TTA_SUM.md`), BRM + UQ-gated hflip is effectively tied while using hflip on only 28.6% of episodes.
+- Best reading: BRM is a compatible trainable mask-refinement base, while UQ is useful as the inference-time controller for expensive consistency refinement. The gain is modest, so do not oversell BRM+UQ as a large accuracy jump.
+
 ### Prior BRM / TTA Evidence From `TTA_SUM.md`
 
 Pascal-Part, BRM checkpoint:
@@ -240,7 +258,7 @@ This supports the SANSA Table 2 style story and the part ambiguity story.
 | SANSA + hflip | 37.21 | | | | | |
 | SANSA + UQ-gated hflip | 37.49 | 65.27 | 38.49 | 56.65 | 49.48 | |
 | SANSA + BRM | | | | | | |
-| SANSA + BRM + UQ-gated hflip | | | | | | |
+| SANSA + BRM + UQ-gated hflip | 37.29 | 66.00 | 38.64 | 56.83 | 49.69 | |
 
 For current Pascal-Part UQ-gated hflip folds, label the gate as:
 

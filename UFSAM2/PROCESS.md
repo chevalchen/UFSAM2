@@ -322,6 +322,23 @@ BRM integration:
 - The checkpoint is about 101MB because it stores the adapter, BRM, optimizer, lr scheduler, and args. The BRM itself is only 6 tensors, about 7K trainable parameters.
 - Interpretation: BRM is a trainable boundary-aware mask refinement branch; hflip is the test-time consistency refinement; UQ controls whether to trigger hflip.
 
+BRM always + UQ-gated hflip, Pascal-Part 1-shot generalist:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 1017 | 37.29 | 64.70 |
+| 1 | 959 | 112 | 66.00 | 72.83 |
+| 2 | 2500 | 908 | 38.64 | 65.53 |
+| 3 | 2500 | 378 | 56.83 | 76.09 |
+| mean | - | - | 49.69 | 69.79 |
+
+Read:
+
+- Total hflip trigger count is unchanged from UQ-gated hflip-only: `2415/8459`, or `28.6%`.
+- Compared with UQ-gated hflip-only (`49.48 / 69.83`), BRM always + UQ-gated hflip gives `+0.21` mIoU and `-0.04` FB-IoU.
+- Compared with prior BRM + unconditional hflip from `TTA_SUM.md` (`49.61 / 69.82`), the UQ-gated version is effectively tied while avoiding unconditional hflip.
+- Current read: keep BRM as compatible trainable mask refinement, but do not oversell it as a large independent gain. The stronger Module A claim is uncertainty-controlled refinement efficiency with slight mIoU improvement.
+
 ### PACO-Part
 
 PACO-Part is the current generalization stress test: long-tail, fine-grained, and support-quality variance is stronger. Current sampler is stochastic and ignores `idx`; use fixed seeds. Add fixed episode lists if PACO becomes a final table.
