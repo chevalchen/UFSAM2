@@ -297,6 +297,23 @@ Risk across seeds:
 
 Read: Pascal-Part is the strongest current positive result. Token support selection consistently beats random and SAM-score, ties all-supports in mIoU, and has lower failure/risk than all-supports. Oracle remains much higher, so support reliability is not solved.
 
+Module A official evaluation, Pascal-Part 1-shot generalist, UQ-gated hflip:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 1017 | 37.49 | 65.24 |
+| 1 | 959 | 112 | 65.27 | 72.39 |
+| 2 | 2500 | 908 | 38.49 | 65.63 |
+| 3 | 2500 | 378 | 56.65 | 76.06 |
+| mean | - | - | 49.48 | 69.83 |
+
+Read:
+
+- Threshold `0.3` gives a complete 4-fold generalist part-segmentation result.
+- Total hflip trigger count is `2415/8459` episodes, or `28.6%`.
+- This is a good Module A result: uncertainty preserves most hflip/refinement benefit while avoiding unconditional hflip on most episodes.
+- Caveat: the uncertainty head is trained on Pascal-Part fold0 1-shot class split and used cross-fold here. This is fine for the current fast loop; if the result becomes central, rerun with fold-specific or leave-one-fold-out heads.
+
 ### PACO-Part
 
 PACO-Part is the current generalization stress test: long-tail, fine-grained, and support-quality variance is stronger. Current sampler is stochastic and ignores `idx`; use fixed seeds. Add fixed episode lists if PACO becomes a final table.

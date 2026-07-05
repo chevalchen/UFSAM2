@@ -125,6 +125,24 @@ Smoke threshold sweep, 50 episodes:
 | UQ-gated hflip | 0.6 | 38/50 | 31.99 | 63.23 |
 | UQ-gated hflip | 0.7 | 46/50 | 31.64 | 62.93 |
 
+Full 4-fold UQ-gated hflip at threshold `0.3`:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 1017 | 37.49 | 65.24 |
+| 1 | 959 | 112 | 65.27 | 72.39 |
+| 2 | 2500 | 908 | 38.49 | 65.63 |
+| 3 | 2500 | 378 | 56.65 | 76.06 |
+| mean | - | - | 49.48 | 69.83 |
+
+Total trigger rate: `2415/8459 = 28.6%`.
+
+Conclusion:
+
+- The 4-fold result is a clean positive Module A signal: UQ-gated hflip reaches `49.48 / 69.83` while triggering hflip on only 28.6% of episodes.
+- This should be treated as generalist part-segmentation evidence, not the final strict FSS main claim.
+- The gate uses the Pascal-Part fold0 1-shot uncertainty head cross-fold; this is acceptable for the first full run, but a paper-critical version should consider fold-specific or leave-one-fold-out heads.
+
 ### Prior BRM / TTA Evidence From `TTA_SUM.md`
 
 Pascal-Part, BRM checkpoint:
@@ -220,7 +238,7 @@ This supports the SANSA Table 2 style story and the part ambiguity story.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | SANSA | 36.29 | | | | | |
 | SANSA + hflip | 37.21 | | | | | |
-| SANSA + UQ-gated hflip | 37.49 | | | | | |
+| SANSA + UQ-gated hflip | 37.49 | 65.27 | 38.49 | 56.65 | 49.48 | |
 | SANSA + BRM | | | | | | |
 | SANSA + BRM + UQ-gated hflip | | | | | | |
 
