@@ -252,15 +252,9 @@ This is acceptable as a first complete run, but if results become central to the
 
 ### Priority 1: Finish Pascal-Part UQ-Gated Hflip 4 Folds
 
-Already done:
+Done:
 
-- fold0, threshold `0.3`: `37.49 / 65.24`, triggered `1017/2500`.
-
-Now run:
-
-- fold1, fold2, fold3 at threshold `0.3`;
-- same generalist adapter and same fold0 uncertainty head for this pass;
-- record mIoU, FB-IoU, and trigger count.
+- fold0-3, threshold `0.3`: mean `49.48 / 69.83`, triggered `2415/8459`.
 
 Purpose:
 
@@ -274,11 +268,26 @@ BRM should be treated as a trainable refinement branch.
 
 Options:
 
-1. If time is tight, use `TTA_SUM.md` BRM results as prior evidence and focus current code on UQ-gated hflip + Module B.
-2. If time allows, port BRM into current `inference_fss.py` path and evaluate:
-   - SANSA + BRM;
-   - SANSA + BRM + hflip;
-   - SANSA + BRM + UQ-gated hflip.
+Current branch supports `--boundary_refine`, so evaluate:
+
+- SANSA + BRM;
+- SANSA + BRM + hflip;
+- SANSA + BRM + UQ-gated hflip.
+
+Recommended first combination:
+
+> BRM always + UQ-gated hflip.
+
+Reason:
+
+- BRM is the trainable boundary-aware mask refinement branch.
+- UQ controls the additional hflip consistency refinement.
+- This avoids incorrectly describing BRM as pure TTA.
+
+Checkpoint note:
+
+- Use `/data6/chensq/SANSA_M/UncSANSA/output/train_brm_stage2/checkpoint0002.pth` for the first Pascal-Part BRM pass.
+- The file is large because it is a full training checkpoint containing adapter weights, BRM weights, optimizer, scheduler, and args. The BRM itself is tiny: 6 tensors, about 7K trainable parameters.
 
 ### Priority 3: Implement Module B In Official Inference
 
@@ -342,6 +351,21 @@ python inference_fss.py \
   --device cuda --data_root /data6/chensq/datasets \
   --resume pretrain/adapter_generalist.pth \
   --name_exp eval_pascal_part_f0_1shot_uq_hflip_t03_full \
+  --uq_hflip_tta \
+  --uq_head_ckpt output/uncertainty_head_pascal_part_fold0_1shot_class_split/uncertainty_head.pt \
+  --uq_gate_threshold 0.3
+```
+
+Pascal-Part BRM always + UQ-gated hflip:
+
+```bash
+python inference_fss.py \
+  --dataset_file pascal_part --prompt mask --shots 1 --fold 0 \
+  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.8 \
+  --device cuda --data_root /data6/chensq/datasets \
+  --resume /data6/chensq/SANSA_M/UncSANSA/output/train_brm_stage2/checkpoint0002.pth \
+  --name_exp eval_pascal_part_f0_1shot_brm_uq_hflip_t03_full \
+  --boundary_refine \
   --uq_hflip_tta \
   --uq_head_ckpt output/uncertainty_head_pascal_part_fold0_1shot_class_split/uncertainty_head.pt \
   --uq_gate_threshold 0.3

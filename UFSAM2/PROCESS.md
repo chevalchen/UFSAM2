@@ -314,6 +314,14 @@ Read:
 - This is a good Module A result: uncertainty preserves most hflip/refinement benefit while avoiding unconditional hflip on most episodes.
 - Caveat: the uncertainty head is trained on Pascal-Part fold0 1-shot class split and used cross-fold here. This is fine for the current fast loop; if the result becomes central, rerun with fold-specific or leave-one-fold-out heads.
 
+BRM integration:
+
+- Current branch now supports `--boundary_refine` in `inference_fss.py`.
+- The intended next Module A variant is BRM always + UQ-gated hflip.
+- Use `/data6/chensq/SANSA_M/UncSANSA/output/train_brm_stage2/checkpoint0002.pth` for the first Pascal-Part run.
+- The checkpoint is about 101MB because it stores the adapter, BRM, optimizer, lr scheduler, and args. The BRM itself is only 6 tensors, about 7K trainable parameters.
+- Interpretation: BRM is a trainable boundary-aware mask refinement branch; hflip is the test-time consistency refinement; UQ controls whether to trigger hflip.
+
 ### PACO-Part
 
 PACO-Part is the current generalization stress test: long-tail, fine-grained, and support-quality variance is stronger. Current sampler is stochastic and ignores `idx`; use fixed seeds. Add fixed episode lists if PACO becomes a final table.

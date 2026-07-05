@@ -34,6 +34,7 @@ def main(args: argparse.Namespace) -> float:
         args.channel_factor,
         args.device,
         hflip_tta=args.hflip_tta,
+        boundary_refine=args.boundary_refine,
     )
     device = torch.device(args.device)
     model.to(device)

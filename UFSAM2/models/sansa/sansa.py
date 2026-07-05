@@ -12,16 +12,24 @@ import torch.nn.functional as F
 from models.sam2.modeling.sam2_utils import preprocess
 from models.sam2.modeling.sam2_base import SAM2Base 
 from models.sansa.model_utils import BackboneOutput, DecoderOutput
+from models.sansa.boundary_refine import BoundaryRefinementModule
 from util.path_utils import SAM2_PATHS_CONFIG, SAM2_WEIGHTS_URL
 from util.promptable_utils import rescale_prompt
 
 
 class SANSA(nn.Module):
-    def __init__(self, sam: SAM2Base, device: torch.device, hflip_tta: bool = False):
+    def __init__(
+        self,
+        sam: SAM2Base,
+        device: torch.device,
+        hflip_tta: bool = False,
+        boundary_refine: bool = False,
+    ):
         super().__init__()
         self.sam = sam
         self.device = device
         self.hflip_tta = hflip_tta
+        self.brm = BoundaryRefinementModule() if boundary_refine else None
 
     def forward(
         self,
@@ -72,6 +80,7 @@ class SANSA(nn.Module):
                     if self.hflip_tta:
                         assert flipped_backbone_output is not None
                         decoder_out = self._apply_hflip_tta(decoder_out, flipped_backbone_output, absolute_idx, idx, self.memory_bank)
+                    decoder_out = self._apply_boundary_refine(decoder_out)
                     if return_traces:
                         traces.append(self._build_uncertainty_trace(decoder_out, b, idx, absolute_idx))
 
@@ -162,6 +171,23 @@ class SANSA(nn.Module):
             )
         return decoder_out
 
+    def _apply_boundary_refine(self, decoder_out: DecoderOutput) -> DecoderOutput:
+        if self.brm is None:
+            return decoder_out
+        brm_feat = getattr(decoder_out, "_brm_feat", None)
+        if brm_feat is None:
+            raise RuntimeError("BRM is enabled, but decoder output has no high-resolution BRM feature.")
+        corrected = self.brm(decoder_out.low_res_masks, brm_feat)
+        decoder_out.low_res_masks = corrected
+        decoder_out.high_res_masks = F.interpolate(
+            corrected.detach(),
+            size=(self.sam.image_size, self.sam.image_size),
+            mode="bilinear",
+            align_corners=False,
+        )
+        decoder_out.masks = decoder_out.low_res_masks
+        return decoder_out
+
     def _compute_decoder_out_w_mem(
         self,
         backbone_out: BackboneOutput,
@@ -202,6 +228,7 @@ class SANSA(nn.Module):
             multimask_output=True if memory_idx > 0 else False
         )
         decoder_out.memory_summary = pix_feat_with_mem.mean(dim=(-2, -1))
+        decoder_out._brm_feat = high_res_features[0]
         return decoder_out
 
     def _build_uncertainty_trace(
@@ -310,6 +337,7 @@ def build_sansa(
     channel_factor: float = 0.3,
     device: str = 'cuda',
     hflip_tta: bool = False,
+    boundary_refine: bool = False,
 ) -> SANSA:
     assert sam2_version in SAM2_PATHS_CONFIG.keys(), f'wrong argument sam2_version: {sam2_version}'
     
@@ -332,10 +360,15 @@ def build_sansa(
 
     state_dict = torch.load(sam2_weights, map_location="cpu", weights_only=False)["model"]
     sam.load_state_dict(state_dict, strict=False)
-    model = SANSA(sam=sam, device=torch.device(device), hflip_tta=hflip_tta)
+    model = SANSA(
+        sam=sam,
+        device=torch.device(device),
+        hflip_tta=hflip_tta,
+        boundary_refine=boundary_refine,
+    )
 
-    # freeze everything except adapters
+    # freeze everything except adapters and optional BRM
     for name, p in model.named_parameters():
-        p.requires_grad = ("adapter" in name)
+        p.requires_grad = ("adapter" in name or "brm" in name)
 
     return model

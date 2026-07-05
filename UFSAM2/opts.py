@@ -49,6 +49,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_eval_episodes", type=int, default=None, help="Optional cap for quick validation; omit for full official evaluation.")
     parser.add_argument("--hflip_tta", action="store_true", default=False, help="Average query logits with horizontal-flip TTA.")
     parser.add_argument("--uq_hflip_tta", action="store_true", default=False, help="Trigger horizontal-flip TTA only for low-confidence query episodes.")
+    parser.add_argument("--boundary_refine", action="store_true", default=False, help="Apply the trainable boundary refinement module after query decoding.")
     parser.add_argument("--uq_head_ckpt", type=str, default="", help="Expected-IoU head checkpoint for uncertainty-gated hflip TTA.")
     parser.add_argument("--uq_head_device", type=str, default="cpu", help="Device for the expected-IoU head used by --uq_hflip_tta.")
     parser.add_argument("--uq_gate_threshold", type=float, default=0.5, help="Run gated hflip when predicted expected IoU is below this threshold.")
