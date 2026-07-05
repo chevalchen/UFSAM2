@@ -206,6 +206,14 @@ MPLCONFIGDIR=/tmp/matplotlib CUDA_VISIBLE_DEVICES=1 python inference_fss.py \
 
 Repeat the same three commands with `--shots 5` and matching experiment names for the 5-shot small loop before launching full fold0 runs without `--max_eval_episodes`.
 
+Pascal-Part fold0 1-shot smoke result reported from GPU run (`--max_eval_episodes 50`):
+
+| setting | threshold | triggered | mIoU | FB-IoU | note |
+| --- | ---: | ---: | ---: | ---: | --- |
+| UQ-gated hflip | 0.7 | 46/50 | 31.64 | 62.93 | Gate is very permissive; compute is close to pure hflip. Need same-episode baseline and pure hflip before judging benefit. |
+
+Immediate read: `t=0.7` is probably too high for a compute-saving gate on this smoke split because it triggers 92% of episodes. It may still match pure hflip, but the key comparison is whether it beats pure hflip at lower trigger rates such as `t=0.3/0.4/0.5/0.6`.
+
 ### FSS-1000
 
 FSS-1000 is a sanity/calibration dataset, not the final proof: SANSA is near ceiling.
