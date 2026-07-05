@@ -518,10 +518,12 @@ First `--support_agg weighted_logits` smoke runs use the official `inference_fss
 | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
 | Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | - |
 | Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean support score 0.415 |
+| COCO-20i | 0 | 5 | 50 | SANSA all-support baseline | 59.83 | 79.73 | - |
 | COCO-20i | 0 | 5 | 50 | UQ-weighted logits | 58.47 | 80.55 | fallback 0/50, mean support score 0.540 |
 
 Read:
 
 - Pascal-Part fold0 5-shot smoke is positive: `+1.59` mIoU and `+4.39` FB-IoU over the matched baseline.
-- COCO-20i fold0 5-shot weighted-logits smoke runs successfully, but the matched SANSA baseline is still needed before claiming a strict-FSS gain.
+- COCO-20i fold0 5-shot smoke is not a main-metric win: UQ-weighted logits changes `59.83 / 79.73` to `58.47 / 80.55`, i.e. `-1.36` mIoU and `+0.82` FB-IoU.
+- Do not run full COCO weighted-logits yet. First add a stricter adaptive/fallback policy or train a COCO-specific support reliability head.
 - This is the first Module B result on official metrics; top1 support-selection remains auxiliary only.

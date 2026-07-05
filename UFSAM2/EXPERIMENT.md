@@ -343,13 +343,15 @@ Current smoke result, official `inference_fss.py` path:
 | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
 | Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | - |
 | Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean support score 0.415 |
+| COCO-20i | 0 | 5 | 50 | SANSA all-support baseline | 59.83 | 79.73 | - |
 | COCO-20i | 0 | 5 | 50 | UQ-weighted logits | 58.47 | 80.55 | fallback 0/50, mean support score 0.540 |
 
 Read:
 
 - Pascal-Part smoke is a strong first Module B signal: `+1.59` mIoU and `+4.39` FB-IoU over the 50-episode all-support baseline.
-- COCO-20i smoke confirms the strict-FSS path runs, but needs the matched 50-episode SANSA baseline before judging improvement.
-- Fallback did not trigger at margin `0.03`; keep an eye on whether this remains true on full folds.
+- COCO-20i smoke is mixed/negative for the main metric: UQ-weighted logits gives `-1.36` mIoU and `+0.82` FB-IoU against the matched 50-episode SANSA baseline.
+- Do not run full COCO weighted-logits yet. The next Module B version needs a stronger adaptive/fallback policy or a COCO-trained reliability head.
+- Fallback did not trigger at margin `0.03`; this is too permissive for strict FSS because uncertain weighted logits can replace a stronger all-support baseline.
 
 ### Priority 4: Strict FSS Main-Line Runs
 
