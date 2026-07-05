@@ -296,22 +296,30 @@ Mixed-head differences:
 
 Read: mixed/unified training fixes part of PACO-only weakness and reaches all-supports, but does not robustly beat all-supports. This points toward adding support-query matching features rather than relying only on query-side tokens.
 
-`tokens_match` PACO support-selection pilot, seed 0, 200 episodes:
+`tokens_match` PACO support-selection, 2 seeds x 200 episodes:
 
 | setting | mIoU | fail<0.5 | risk<0.7 |
 | --- | ---: | ---: | ---: |
-| random | 0.4540 | 53.5% | 70.5% |
-| SAM-score | 0.4867 | 48.0% | 64.5% |
-| mixed token | 0.5068 | 46.0% | 64.5% |
-| `tokens_match` | 0.5098 | 46.0% | 65.5% |
-| all-supports | 0.5029 | 47.0% | 66.5% |
-| oracle | 0.5918 | 35.0% | 57.0% |
+| random | 0.4520 | 54.3% | 71.8% |
+| SAM-score | 0.4830 | 49.3% | 65.3% |
+| mixed token | 0.4949 | 48.0% | 65.8% |
+| `tokens_match` | 0.4945 | 47.3% | 65.8% |
+| all-supports | 0.4948 | 48.5% | 66.5% |
+| oracle | 0.5834 | 36.8% | 58.0% |
 
-Pilot read:
+Per-seed `tokens_match` summaries:
 
-- `tokens_match` improves over the mixed query-only head by `+0.0030` mIoU on seed 0.
-- `tokens_match` is `+0.0230 ± 0.0131` SE over SAM-score and `+0.0069 ± 0.0117` SE over all-supports.
-- Direction is positive but not final; repeat seed 1 before changing the PACO claim.
+| seed | random | SAM-score | mixed token | `tokens_match` | all-supports | oracle | match-SAM | match-all |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.4540 | 0.4867 | 0.5068 | 0.5098 | 0.5029 | 0.5918 | +0.0230 | +0.0069 |
+| 1 | 0.4500 | 0.4794 | 0.4830 | 0.4792 | 0.4867 | 0.5750 | -0.0001 | -0.0075 |
+
+Matching intervention read:
+
+- `tokens_match` improves calibration/ranking metrics, but the support-selection gain does not survive seed 1.
+- Across two seeds, `tokens_match` is effectively tied with mixed query-only and all-supports: match-all is about `-0.0003` mIoU.
+- Risk is mildly better than all-supports (`65.8%` vs `66.5%` for IoU<0.7), but not better than SAM-score.
+- Current read: support-query matching features are useful for expected-IoU prediction, but this version is not a robust PACO intervention win.
 
 ### Memory-Propagation Risk
 
