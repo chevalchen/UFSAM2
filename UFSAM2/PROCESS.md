@@ -212,9 +212,10 @@ Pascal-Part fold0 1-shot smoke results reported from GPU runs (`--max_eval_episo
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | SANSA baseline | - | 0/50 | 30.78 | 62.07 | - | -0.94 / -0.95 | no TTA |
 | pure hflip TTA | - | 50/50 | 31.72 | 63.02 | +0.94 / +0.95 | - | best current smoke result |
+| UQ-gated hflip | 0.3 | 24/50 | 31.62 | 63.28 | +0.84 / +1.21 | -0.10 / +0.26 | promising efficient gate: half the flips, near-hflip mIoU, better FB-IoU |
 | UQ-gated hflip | 0.7 | 46/50 | 31.64 | 62.93 | +0.86 / +0.86 | -0.08 / -0.09 | very permissive gate; close to pure hflip but not better |
 
-Immediate read: pure hflip clearly improves the 50-episode smoke split. UQ-gated hflip at `t=0.7` keeps most of that gain while skipping only 4/50 flips, so it is not yet a strong uncertainty-guided efficiency or accuracy result. The next useful test is lower thresholds (`t=0.3/0.4/0.5/0.6`): a good gate should either match/exceed pure hflip or stay close while triggering substantially fewer than 50/50 episodes.
+Immediate read: pure hflip clearly improves the 50-episode smoke split. UQ-gated hflip at `t=0.3` is the first promising Module-A point: it triggers only 24/50 episodes, keeps mIoU within 0.10 of pure hflip, and gives the best FB-IoU so far. UQ-gated hflip at `t=0.7` keeps most of the hflip gain but triggers 46/50 episodes, so it is less useful as an efficiency result. Continue the threshold sweep (`t=0.4/0.5/0.6`) and use the best smoke threshold for full fold0.
 
 ### FSS-1000
 
