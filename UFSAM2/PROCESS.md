@@ -43,7 +43,8 @@ Trace/uncertainty tools:
 Current limitations:
 
 - `--support_agg` is not yet combined with `--uq_hflip_tta`.
-- First Module B weighted-logits prototype is not ready for full COCO runs because COCO smoke hurts mIoU.
+- Naked weighted logits is not ready for full COCO because it hurts mIoU.
+- The fallback-controlled version with `--support_fallback_margin 0.20` is now the first fold0-full candidate.
 
 ## Environment
 
@@ -134,14 +135,19 @@ First official-path prototype: `--support_agg weighted_logits`.
 | Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | - |
 | Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean score 0.415 |
 | COCO-20i | 0 | 5 | 50 | SANSA all-support baseline | 59.83 | 79.73 | - |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits | 58.47 | 80.55 | fallback 0/50, mean score 0.540 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.03 | 58.47 | 80.55 | fallback 0/50, mean score 0.540 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.10 | 60.43 | 81.37 | fallback 12/50, mean margin 0.249 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.20 | 60.89 | 81.90 | fallback 29/50, mean margin 0.249 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, min score 0.60 | 57.79 | 78.97 | fallback 16/50 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.10 + min score 0.60 | 59.85 | 79.91 | fallback 25/50 |
 
 Read:
 
 - Pascal-Part smoke is positive: `+1.59` mIoU and `+4.39` FB-IoU.
-- COCO-20i smoke is not a main-metric win: `-1.36` mIoU and `+0.82` FB-IoU.
-- Do not run full COCO weighted logits yet.
-- Next: stricter fallback/adaptive-k or a COCO-specific support reliability head.
+- COCO-20i naked weighted logits is not a main-metric win: `-1.36` mIoU and `+0.82` FB-IoU.
+- With fallback, `margin=0.20` is the best smoke setting: `+1.06` mIoU and `+2.17` FB-IoU over baseline.
+- `min_score=0.60` is not useful as the main rule because it hurts mIoU.
+- Next: run full COCO fold0 baseline and full COCO fold0 `margin=0.20`.
 
 ## Diagnostic Summary
 
@@ -156,10 +162,10 @@ Keep these as motivation only:
 
 ## Current Priorities
 
-1. Fix Module B before running full COCO.
-   - Run fallback sweep on COCO fold0 5-shot smoke.
-   - Try `--support_fallback_margin 0.10`, `0.20`, and `--support_fallback_min_score 0.60`.
-   - If mIoU still falls below baseline, train/use a COCO-specific support reliability head.
+1. Validate Module B on full COCO fold0.
+   - Run full COCO fold0 5-shot SANSA baseline.
+   - Run full COCO fold0 5-shot Module B with `--support_fallback_margin 0.20`.
+   - If full fold0 is not positive, move to adaptive-k or a COCO-specific support reliability head.
 
 2. Build the strict FSS main table.
    - First: COCO-20i fold0 5-shot SANSA vs improved Module B.

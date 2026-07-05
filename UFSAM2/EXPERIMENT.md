@@ -56,7 +56,7 @@
 - 按 reliability 融合 logits。
 - 当 support 分数过于接近或过低时可 fallback 到 all-support SANSA。
 
-当前结论：第一版 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；不能直接跑 full COCO 主表，需要先强化 fallback/adaptive 策略或训练 COCO-specific reliability head。
+当前结论：裸 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；加入更保守的 fallback 后，COCO-20i fold0 smoke 转为正向。目前 `support_fallback_margin=0.20` 是进入 full fold0 的首选候选。
 
 ## 3. 当前代码状态
 
@@ -73,7 +73,7 @@
 当前限制：
 
 - `--support_agg` 暂未和 `--uq_hflip_tta` 合并。
-- Module B 第一版只适合继续做 smoke / ablation，不适合直接跑 full COCO。
+- 裸 weighted logits 不适合直接跑 full COCO；带 fallback 的 `margin=0.20` 版本可以进入 fold0 full 验证。
 
 ## 4. Official Results
 
@@ -145,13 +145,19 @@ BRM always + UQ-gated hflip，threshold `0.3`：
 | Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | - |
 | Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean score 0.415 |
 | COCO-20i | 0 | 5 | 50 | SANSA all-support baseline | 59.83 | 79.73 | - |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits | 58.47 | 80.55 | fallback 0/50, mean score 0.540 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.03 | 58.47 | 80.55 | fallback 0/50, mean score 0.540 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.10 | 60.43 | 81.37 | fallback 12/50, mean margin 0.249 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.20 | 60.89 | 81.90 | fallback 29/50, mean margin 0.249 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, min score 0.60 | 57.79 | 78.97 | fallback 16/50 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.10 + min score 0.60 | 59.85 | 79.91 | fallback 25/50 |
 
 读法：
 
 - Pascal-Part 5-shot smoke 正向：`+1.59` mIoU，`+4.39` FB-IoU。
-- COCO-20i 5-shot smoke 主指标负向：`-1.36` mIoU，`+0.82` FB-IoU。
-- 因此不要直接跑 full COCO weighted logits。下一步先做 fallback sweep / adaptive-k / COCO-specific reliability head。
+- COCO-20i 裸 weighted logits 主指标负向：`-1.36` mIoU，`+0.82` FB-IoU。
+- 加入 fallback 后，`margin=0.20` 最好：相对 baseline `+1.06` mIoU，`+2.17` FB-IoU。
+- `min_score=0.60` 不适合作为当前规则，会显著伤害 mIoU。
+- 下一步跑 COCO fold0 full：baseline vs `margin=0.20` Module B。
 
 ## 5. 诊断结果摘要
 
@@ -206,17 +212,11 @@ Module A:
 
 Module B:
 
-1. 先跑 COCO fold0 5-shot fallback sweep，不跑 full。
-2. 如果 sweep 仍伤 mIoU，训练或切换 COCO-specific support reliability head。
-3. 再实现更保守的 `adaptive-k + fallback`。
-4. 只有 COCO smoke 超过或稳定持平 baseline 后，才跑 full fold0 / 4 folds。
+1. 跑 COCO fold0 5-shot full baseline。
+2. 跑 COCO fold0 5-shot full `--support_fallback_margin 0.20`。
+3. 如果 full fold0 仍正向，再扩展 COCO fold1-3。
+4. 如果 full fold0 不稳，再实现更保守的 `adaptive-k + fallback` 或训练 COCO-specific support reliability head。
 5. A+B 组合等 Module B 独立站稳后再接。
-
-推荐 smoke 方向：
-
-- `--support_fallback_margin 0.10`
-- `--support_fallback_margin 0.20`
-- `--support_fallback_min_score 0.60`
 
 ## 8. 常用命令骨架
 
