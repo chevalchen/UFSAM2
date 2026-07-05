@@ -220,6 +220,16 @@ Pascal-Part fold0 1-shot smoke results reported from GPU runs (`--max_eval_episo
 
 Immediate read: pure hflip clearly improves the 50-episode smoke split. UQ-gated hflip is now positive in the intended sense: `t=0.4` beats pure hflip on both mIoU and FB-IoU while skipping 18/50 flips, and `t=0.3` is the efficient backup with 24/50 flips and better FB-IoU than pure hflip. For full Pascal-Part fold0, run baseline, pure hflip, UQ-gated hflip `t=0.4`, and optionally `t=0.3` as an efficiency ablation.
 
+Pascal-Part fold0 1-shot full results reported from GPU runs (`2500` episodes):
+
+| setting | threshold | triggered | mIoU | FB-IoU | delta vs baseline | delta vs hflip | note |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| SANSA baseline | - | 0/2500 | 36.29 | 64.26 | - | -0.92 / -0.90 | matches previous full baseline scale |
+| pure hflip TTA | - | 2500/2500 | 37.21 | 65.16 | +0.92 / +0.90 | - | clean no-training TTA gain |
+| UQ-gated hflip | 0.4 | 1235/2500 | 37.49 | 65.31 | +1.20 / +1.05 | +0.28 / +0.15 | positive Module-A result: better than pure hflip with about half the flips |
+
+Full-fold read: UQ-gated hflip at `t=0.4` validates the Module-A idea on Pascal-Part fold0 1-shot. It improves over baseline and pure hflip while triggering hflip for only 49.4% of episodes. This is stronger than the smoke result because it holds on the full official fold0 evaluation path. Next checks: run `t=0.3` full as an efficiency ablation, then repeat the baseline / hflip / UQ-gated hflip comparison for Pascal-Part fold0 5-shot.
+
 ### FSS-1000
 
 FSS-1000 is a sanity/calibration dataset, not the final proof: SANSA is near ceiling.
