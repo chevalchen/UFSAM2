@@ -203,6 +203,8 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     support_fallback_count = 0
     support_score_sum = 0.0
     support_score_count = 0
+    support_margin_sum = 0.0
+    support_max_score_sum = 0.0
     if args.uq_hflip_tta:
         head_device = torch.device(args.uq_head_device)
         uq_state = load_uncertainty_head(args.uq_head_ckpt, head_device)
@@ -237,6 +239,8 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
                 support_fallback_count += int(used_fallback)
                 support_score_sum += sum(support_scores)
                 support_score_count += len(support_scores)
+                support_margin_sum += max(support_scores) - min(support_scores)
+                support_max_score_sum += max(support_scores)
             elif uq_state is None:
                 outputs = model(imgs, prompt_dict)
             else:
@@ -289,7 +293,9 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         print(f'UQ-gated hflip triggered on {gated_hflip_count}/{max_episodes} episodes at threshold {args.uq_gate_threshold:.3f}')
     if args.support_agg != "none":
         mean_score = support_score_sum / max(support_score_count, 1)
-        print(f'Support aggregation: {args.support_agg}; fallback on {support_fallback_count}/{max_episodes} episodes; mean support score {mean_score:.3f}')
+        mean_margin = support_margin_sum / max(max_episodes, 1)
+        mean_max_score = support_max_score_sum / max(max_episodes, 1)
+        print(f'Support aggregation: {args.support_agg}; fallback on {support_fallback_count}/{max_episodes} episodes; mean support score {mean_score:.3f}; mean max score {mean_max_score:.3f}; mean score margin {mean_margin:.3f}')
     print('==================== Finished Testing ====================')
 
     return miou
