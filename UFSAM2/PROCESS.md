@@ -509,3 +509,19 @@ Read: pseudo-query memory can hurt downstream queries, but current expected-IoU 
    - Use COCO-20i 4-fold with SANSA per-fold pretrained adapters under `pretrain/coco-20i-4/`.
    - Report both official-style mIoU/FB-IoU and support-selection avg IoU.
    - This makes support reliability evidence more authoritative than Pascal-Part/PACO-only diagnostics.
+
+## Module B Official-Path Smoke
+
+First `--support_agg weighted_logits` smoke runs use the official `inference_fss.py` evaluator, not support-selection diagnostics.
+
+| Dataset | Fold | Shots | Episodes | Method | mIoU | FB-IoU | Extra |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
+| Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | - |
+| Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean support score 0.415 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits | 58.47 | 80.55 | fallback 0/50, mean support score 0.540 |
+
+Read:
+
+- Pascal-Part fold0 5-shot smoke is positive: `+1.59` mIoU and `+4.39` FB-IoU over the matched baseline.
+- COCO-20i fold0 5-shot weighted-logits smoke runs successfully, but the matched SANSA baseline is still needed before claiming a strict-FSS gain.
+- This is the first Module B result on official metrics; top1 support-selection remains auxiliary only.

@@ -337,6 +337,20 @@ Minimum viable strategies:
 
 First debug on Pascal-Part fold0 5-shot, then immediately move to COCO-20i fold0 5-shot.
 
+Current smoke result, official `inference_fss.py` path:
+
+| Dataset | Fold | Shots | Episodes | Method | mIoU | FB-IoU | Extra |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
+| Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | - |
+| Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean support score 0.415 |
+| COCO-20i | 0 | 5 | 50 | UQ-weighted logits | 58.47 | 80.55 | fallback 0/50, mean support score 0.540 |
+
+Read:
+
+- Pascal-Part smoke is a strong first Module B signal: `+1.59` mIoU and `+4.39` FB-IoU over the 50-episode all-support baseline.
+- COCO-20i smoke confirms the strict-FSS path runs, but needs the matched 50-episode SANSA baseline before judging improvement.
+- Fallback did not trigger at margin `0.03`; keep an eye on whether this remains true on full folds.
+
 ### Priority 4: Strict FSS Main-Line Runs
 
 Once Module B works:
