@@ -28,11 +28,16 @@
 - `evaluate_support_selection.py`: 5-shot intervention. Runs each support independently as 1-shot, then compares random, SAM-score, token-head, all-supports, and oracle.
   - Optional `--official_metrics` also accumulates SANSA-style class mIoU / FB-IoU for each support-selection strategy.
 - `evaluate_memory_propagation_risk.py`: side-branch probe for test-time sequential pseudo-query memory.
+- `inference_fss.py`: official FSS evaluation path now supports Module-A no-training variants.
+  - `--hflip_tta` averages normal and horizontally flipped query logits in logit space while reusing the same support memory.
+  - `--uq_hflip_tta --uq_head_ckpt ... --uq_gate_threshold ...` first estimates query expected IoU from decoder traces, then triggers hflip only for low-confidence episodes.
+  - `--max_eval_episodes` is available for smoke/small-loop validation; omit it for full official mIoU / FB-IoU tables.
 - SANSA/SAM2 trace hooks:
   - `mask_decoder.py`: saves `last_iou_token_out`, `last_mask_tokens_out`.
   - `model_utils.py`: extends `DecoderOutput`.
   - `sam2_base.py`: fills token/output fields.
   - `sansa.py`: supports `return_traces=True` for query frames and `support_traces` for support frames.
+  - `sansa.py`: supports optional query-frame hflip TTA for official inference without changing support prompts or output format.
 
 ## Environment
 
@@ -150,6 +155,56 @@ MPLCONFIGDIR=/tmp/matplotlib python train_uncertainty_head.py \
 ```
 
 ## Results
+
+### 2026-07-05 Module-A Official FSS Path
+
+Implemented the first Module-A official-evaluation path:
+
+| item | status |
+| --- | --- |
+| SANSA baseline path | unchanged default in `inference_fss.py` |
+| hflip TTA | implemented as `--hflip_tta` |
+| UQ-gated hflip | implemented as `--uq_hflip_tta` with an expected-IoU head checkpoint |
+| official metrics | still accumulated through `AverageMeter` / `Evaluator.classify_prediction` |
+| smoke controls | `--max_eval_episodes` added for small-loop checks only |
+
+Verification completed in the `sam2coco` environment:
+
+- `conda run -n sam2coco python -m py_compile opts.py inference_fss.py models/sansa/sansa.py`
+- `conda run -n sam2coco python inference_fss.py --help`
+
+GPU evaluation was not run in this session because CUDA was not visible (`torch.cuda.is_available() == False`, `cuda_count == 0`; `nvidia-smi` could not communicate with the driver). Next run on a GPU-visible session should start with Pascal-Part fold0 1-shot/5-shot small loops:
+
+```bash
+MPLCONFIGDIR=/tmp/matplotlib CUDA_VISIBLE_DEVICES=1 python inference_fss.py \
+  --dataset_file pascal_part --prompt mask --shots 1 --fold 0 \
+  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.8 \
+  --device cuda --data_root /data6/chensq/datasets \
+  --resume pretrain/adapter_generalist.pth \
+  --name_exp eval_pascal_part_f0_1shot_baseline_smoke \
+  --max_eval_episodes 50
+
+MPLCONFIGDIR=/tmp/matplotlib CUDA_VISIBLE_DEVICES=1 python inference_fss.py \
+  --dataset_file pascal_part --prompt mask --shots 1 --fold 0 \
+  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.8 \
+  --device cuda --data_root /data6/chensq/datasets \
+  --resume pretrain/adapter_generalist.pth \
+  --name_exp eval_pascal_part_f0_1shot_hflip_smoke \
+  --hflip_tta --max_eval_episodes 50
+
+MPLCONFIGDIR=/tmp/matplotlib CUDA_VISIBLE_DEVICES=1 python inference_fss.py \
+  --dataset_file pascal_part --prompt mask --shots 1 --fold 0 \
+  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.8 \
+  --device cuda --data_root /data6/chensq/datasets \
+  --resume pretrain/adapter_generalist.pth \
+  --name_exp eval_pascal_part_f0_1shot_uq_hflip_smoke \
+  --uq_hflip_tta \
+  --uq_head_ckpt output/uncertainty_head_pascal_part_fold0_1shot_class_split/uncertainty_head.pt \
+  --uq_gate_threshold 0.5 \
+  --max_eval_episodes 50
+```
+
+Repeat the same three commands with `--shots 5` and matching experiment names for the 5-shot small loop before launching full fold0 runs without `--max_eval_episodes`.
 
 ### FSS-1000
 
