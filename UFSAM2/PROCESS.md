@@ -296,6 +296,23 @@ Mixed-head differences:
 
 Read: mixed/unified training fixes part of PACO-only weakness and reaches all-supports, but does not robustly beat all-supports. This points toward adding support-query matching features rather than relying only on query-side tokens.
 
+`tokens_match` PACO support-selection pilot, seed 0, 200 episodes:
+
+| setting | mIoU | fail<0.5 | risk<0.7 |
+| --- | ---: | ---: | ---: |
+| random | 0.4540 | 53.5% | 70.5% |
+| SAM-score | 0.4867 | 48.0% | 64.5% |
+| mixed token | 0.5068 | 46.0% | 64.5% |
+| `tokens_match` | 0.5098 | 46.0% | 65.5% |
+| all-supports | 0.5029 | 47.0% | 66.5% |
+| oracle | 0.5918 | 35.0% | 57.0% |
+
+Pilot read:
+
+- `tokens_match` improves over the mixed query-only head by `+0.0030` mIoU on seed 0.
+- `tokens_match` is `+0.0230 ± 0.0131` SE over SAM-score and `+0.0069 ± 0.0117` SE over all-supports.
+- Direction is positive but not final; repeat seed 1 before changing the PACO claim.
+
 ### Memory-Propagation Risk
 
 Important correction:
