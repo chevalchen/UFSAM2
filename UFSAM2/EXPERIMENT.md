@@ -161,6 +161,25 @@ Conclusion:
 - Compared with prior BRM + unconditional hflip (`49.61 / 69.82` from `TTA_SUM.md`), BRM + UQ-gated hflip is effectively tied while using hflip on only 28.6% of episodes.
 - Best reading: BRM is a compatible trainable mask-refinement base, while UQ is useful as the inference-time controller for expensive consistency refinement. The gain is modest, so do not oversell BRM+UQ as a large accuracy jump.
 
+PACO-Part full 4-fold BRM always + UQ-gated hflip at threshold `0.3`:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 991 | 41.59 | 67.84 |
+| 1 | 2500 | 856 | 45.49 | 66.83 |
+| 2 | 2500 | 767 | 46.42 | 66.20 |
+| 3 | 2500 | 846 | 41.36 | 64.47 |
+| mean | - | - | 43.72 | 66.34 |
+
+Total trigger rate: `3460/10000 = 34.6%`.
+
+PACO-Part read:
+
+- Compared with prior PACO BRM + unconditional hflip (`43.65 / 66.44` from `TTA_SUM.md`), BRM + UQ-gated hflip is effectively tied: `+0.07` mIoU and `-0.10` FB-IoU.
+- Compared with prior PACO generalist + hflip (`43.22 / 66.29`), the BRM + UQ-gated version is better in mIoU and essentially tied in FB-IoU.
+- This confirms the Module A efficiency story beyond Pascal-Part: the gate uses hflip on only about one third of PACO episodes while preserving the BRM+hflip performance level.
+- The PACO UQ head is trained on PACO-Part fold0 and used cross-fold; keep that caveat in any auxiliary table.
+
 ### Prior BRM / TTA Evidence From `TTA_SUM.md`
 
 Pascal-Part, BRM checkpoint:
@@ -258,7 +277,7 @@ This supports the SANSA Table 2 style story and the part ambiguity story.
 | SANSA + hflip | 37.21 | | | | | |
 | SANSA + UQ-gated hflip | 37.49 | 65.27 | 38.49 | 56.65 | 49.48 | |
 | SANSA + BRM | | | | | | |
-| SANSA + BRM + UQ-gated hflip | 37.29 | 66.00 | 38.64 | 56.83 | 49.69 | |
+| SANSA + BRM + UQ-gated hflip | 37.29 | 66.00 | 38.64 | 56.83 | 49.69 | 43.72 |
 
 For current Pascal-Part UQ-gated hflip folds, label the gate as:
 

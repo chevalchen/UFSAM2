@@ -343,6 +343,23 @@ Read:
 
 PACO-Part is the current generalization stress test: long-tail, fine-grained, and support-quality variance is stronger. Current sampler is stochastic and ignores `idx`; use fixed seeds. Add fixed episode lists if PACO becomes a final table.
 
+BRM always + UQ-gated hflip, PACO-Part 1-shot generalist:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 991 | 41.59 | 67.84 |
+| 1 | 2500 | 856 | 45.49 | 66.83 |
+| 2 | 2500 | 767 | 46.42 | 66.20 |
+| 3 | 2500 | 846 | 41.36 | 64.47 |
+| mean | - | - | 43.72 | 66.34 |
+
+Read:
+
+- Total hflip trigger count: `3460/10000`, or `34.6%`.
+- Compared with prior PACO BRM + unconditional hflip (`43.65 / 66.44` from `TTA_SUM.md`), BRM + UQ-gated hflip is effectively tied: `+0.07` mIoU and `-0.10` FB-IoU.
+- Compared with prior PACO generalist + hflip (`43.22 / 66.29`), it improves mIoU by `+0.50` and keeps FB-IoU essentially tied.
+- Current read: this is enough to close the Module A generalist part-segmentation line. Do not spend more time tuning PACO thresholds unless Module B stalls.
+
 1-shot cache:
 
 - episodes: `2500`
