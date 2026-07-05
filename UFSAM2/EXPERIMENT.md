@@ -326,6 +326,35 @@ export CUDA_VISIBLE_DEVICES=1
 
 ## 7. 下一步优先级
 
+### Setting Decision: Generalist vs Strict FSS
+
+结论：
+
+- Pascal-Part / PACO-Part with `adapter_generalist.pth` 适合继续作为 Module A 和 part ambiguity 的主要验证场景。
+  - 理由：SANSA paper 的 generalist in-context setting 本身包含 Pascal-Part / PACO-Part part segmentation；这里最贴合边界模糊、部件断裂、part ambiguity。
+  - 当前 Pascal-Part fold0 1-shot full 已经证明 UQ-gated hflip 比 pure hflip 更好，同时只触发约一半 episodes。
+- 但最终 A+B 主结果不能只停在 generalist part setting。
+  - 论文主目标仍是标准 strict FSS 表：`1-shot / 5-shot / fold0-3 / mean / official mIoU-FB-IoU`。
+  - SANSA paper 的 strict FSS Table 1 明确包含 `1-shot` 和 `5-shot`，对应 COCO-20i / LVIS-92i / FSS-1000。
+  - Pascal-Part / PACO-Part 在 SANSA paper 中更偏 generalist in-context / one-shot part segmentation evidence，适合作为 Table 2 或 auxiliary part-seg evidence。
+- 因此不需要推倒重来，但需要双线推进：
+  1. **Generalist part line**：继续用 Pascal-Part fold0 完成 Module A、Module B、A+B 的快速闭环和 qualitative/risk 分析。
+  2. **Strict FSS main line**：把已经实现的 A/B 策略接到 strict FSS 权重和 official evaluation 上，优先 COCO-20i fold0 5-shot，再扩 fold0-3；FSS-1000 作为 sanity。
+
+当前定位：
+
+| Experiment line | Dataset / weight | Role | Can support final main claim? |
+| --- | --- | --- | --- |
+| Generalist part | Pascal-Part / PACO-Part, `adapter_generalist.pth`, `channel_factor=0.8` | Module A proof, part ambiguity, qualitative/risk | no, auxiliary / Table 2 style |
+| Strict FSS | COCO-20i fold weights, `channel_factor=0.3` | main standard FSS table, 1-shot/5-shot/folds | yes |
+| FSS-1000 | `adapter_fss_fold0.pth`, `channel_factor=0.3` | sanity / near-ceiling check | weak as main evidence |
+
+Practical next step:
+
+- Do not abandon the current Pascal-Part generalist results; they are useful and already positive for Module A.
+- Do not make the final A+B claim only on Pascal-Part generalist.
+- Implement Module B aggregation in a protocol-agnostic way inside the official inference path, then run it first on Pascal-Part fold0 5-shot for debugging and immediately on strict FSS COCO-20i fold0 5-shot for the main-table direction.
+
 ### Step 1: 标准主表评测脚本接入 Module A / B
 
 当前 `inference_fss.py` 是 official evaluation 入口。
