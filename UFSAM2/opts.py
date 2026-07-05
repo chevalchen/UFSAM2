@@ -53,5 +53,11 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--uq_head_ckpt", type=str, default="", help="Expected-IoU head checkpoint for uncertainty-gated hflip TTA.")
     parser.add_argument("--uq_head_device", type=str, default="cpu", help="Device for the expected-IoU head used by --uq_hflip_tta.")
     parser.add_argument("--uq_gate_threshold", type=float, default=0.5, help="Run gated hflip when predicted expected IoU is below this threshold.")
+    parser.add_argument("--support_agg", type=str, default="none", choices=["none", "weighted_logits"], help="5-shot support aggregation strategy for Module B.")
+    parser.add_argument("--support_uq_head_ckpt", type=str, default="", help="Expected-IoU head checkpoint for uncertainty-guided support aggregation.")
+    parser.add_argument("--support_uq_head_device", type=str, default="cpu", help="Device for the expected-IoU head used by --support_agg.")
+    parser.add_argument("--support_weight_temp", type=float, default=0.0, help="Softmax temperature for support scores; <=0 uses linear score normalization.")
+    parser.add_argument("--support_fallback_margin", type=float, default=0.03, help="Fallback to all-support SANSA when support scores are nearly tied.")
+    parser.add_argument("--support_fallback_min_score", type=float, default=0.0, help="Fallback to all-support SANSA when every support score is below this value.")
 
     return parser

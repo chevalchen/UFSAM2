@@ -400,6 +400,27 @@ python inference_fss.py \
   --name_exp eval_coco_f0_5shot_sansa
 ```
 
+Module B first runnable path:
+
+```bash
+python inference_fss.py \
+  --dataset_file coco --prompt mask --shots 5 --fold 0 \
+  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.3 \
+  --device cuda --data_root /data6/chensq/datasets \
+  --resume pretrain/coco-20i-4/adapter_coco_fold0.pth \
+  --name_exp eval_coco_f0_5shot_uq_weighted_logits \
+  --support_agg weighted_logits \
+  --support_uq_head_ckpt output/uncertainty_head_mixed_tokens_match_fss_pascal_paco/uncertainty_head.pt
+```
+
+Current Module B implementation status:
+
+- `--support_agg weighted_logits` runs official `inference_fss.py` evaluation.
+- For each 5-shot episode, it decodes each support independently, scores support-query reliability with an expected-IoU head, and fuses query logits with reliability weights.
+- If support scores are nearly tied, it falls back to original all-support SANSA logits.
+- This is the first paper-facing Module B path; top1 support selection remains diagnostic only.
+- `--support_agg` is not yet combined with `--uq_hflip_tta`; evaluate Module B alone first, then wire A+B deliberately.
+
 ## 9. Do Not Drift
 
 - 主表必须来自 `inference_fss.py` official evaluation。

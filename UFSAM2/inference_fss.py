@@ -27,6 +27,14 @@ def main(args: argparse.Namespace) -> float:
         raise ValueError("Use either --hflip_tta or --uq_hflip_tta, not both.")
     if args.uq_hflip_tta and not args.uq_head_ckpt:
         raise ValueError("--uq_hflip_tta requires --uq_head_ckpt.")
+    if args.support_agg != "none":
+        if args.shots < 2:
+            raise ValueError("--support_agg is intended for multi-shot evaluation; use --shots > 1.")
+        if args.uq_hflip_tta:
+            raise ValueError("--support_agg and --uq_hflip_tta are not combined yet; evaluate Module B first.")
+        support_head_ckpt = args.support_uq_head_ckpt or args.uq_head_ckpt
+        if not support_head_ckpt:
+            raise ValueError("--support_agg requires --support_uq_head_ckpt or --uq_head_ckpt.")
 
     model = build_sansa(
         args.sam2_version,
@@ -109,6 +117,73 @@ def predict_expected_iou(
     return head(feature.unsqueeze(0)).item()
 
 
+def _support_score_to_weights(scores: torch.Tensor, temperature: float) -> torch.Tensor:
+    if temperature > 0:
+        return torch.softmax(scores / temperature, dim=0)
+    scores = scores.clamp_min(0)
+    score_sum = scores.sum()
+    if score_sum <= 1e-6:
+        return torch.full_like(scores, 1.0 / scores.numel())
+    return scores / score_sum
+
+
+def _should_fallback_support_scores(args: argparse.Namespace, scores: torch.Tensor) -> bool:
+    if scores.numel() <= 1:
+        return False
+    if args.support_fallback_min_score > 0 and scores.max().item() < args.support_fallback_min_score:
+        return True
+    return (scores.max() - scores.min()).item() < args.support_fallback_margin
+
+
+@torch.no_grad()
+def _predict_weighted_support_logits(
+    model: torch.nn.Module,
+    query_img: torch.Tensor,
+    support_imgs: torch.Tensor,
+    support_masks: torch.Tensor,
+    args: argparse.Namespace,
+    support_uq_state: tuple[nn.Module, tuple[str, ...], torch.Tensor, torch.Tensor],
+) -> tuple[dict[str, torch.Tensor], bool, list[float]]:
+    head, feature_keys, mean_vec, std_vec = support_uq_state
+    head_device = torch.device(args.support_uq_head_device)
+    query_logits = []
+    support_scores = []
+
+    for support_idx in range(args.shots):
+        single_imgs = torch.cat([support_imgs[0, support_idx:support_idx + 1], query_img]).unsqueeze(0)
+        single_imgs = single_imgs.to(args.device)
+        single_masks = support_masks[:, support_idx:support_idx + 1]
+        single_prompt = build_prompt_dict(
+            single_masks,
+            args.prompt,
+            n_shots=1,
+            train_mode=False,
+            device=model.device,
+        )
+        single_outputs = model(single_imgs, single_prompt, return_traces=True)
+        trace = _merge_support_trace(single_outputs["traces"][-1], single_outputs.get("support_traces", []))
+        score = predict_expected_iou(head, feature_keys, mean_vec, std_vec, trace, head_device)
+        support_scores.append(score)
+        query_logits.append(single_outputs["pred_masks"][-1])
+
+    scores = torch.tensor(support_scores, device=query_logits[0].device, dtype=query_logits[0].dtype)
+    if _should_fallback_support_scores(args, scores):
+        all_imgs = torch.cat([support_imgs[0], query_img]).unsqueeze(0).to(args.device)
+        all_prompt = build_prompt_dict(
+            support_masks,
+            args.prompt,
+            n_shots=args.shots,
+            train_mode=False,
+            device=model.device,
+        )
+        return model(all_imgs, all_prompt), True, support_scores
+
+    weights = _support_score_to_weights(scores, args.support_weight_temp)
+    stacked_logits = torch.stack(query_logits, dim=0)
+    fused_logit = (weights[:, None, None] * stacked_logits).sum(dim=0)
+    return {"pred_masks": fused_logit.unsqueeze(0)}, False, support_scores
+
+
 def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     """
     Evaluate SANSA on the few-shot segmentation benchmark.
@@ -123,10 +198,17 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     model.eval()
     average_meter = AverageMeter(args.dataset_file, ds.class_ids, ds.nclass)
     uq_state = None
+    support_uq_state = None
     gated_hflip_count = 0
+    support_fallback_count = 0
+    support_score_sum = 0.0
+    support_score_count = 0
     if args.uq_hflip_tta:
         head_device = torch.device(args.uq_head_device)
         uq_state = load_uncertainty_head(args.uq_head_ckpt, head_device)
+    if args.support_agg != "none":
+        support_head_ckpt = args.support_uq_head_ckpt or args.uq_head_ckpt
+        support_uq_state = load_uncertainty_head(support_head_ckpt, torch.device(args.support_uq_head_device))
 
     max_episodes = len(dataloader) if args.max_eval_episodes is None else min(args.max_eval_episodes, len(dataloader))
     pbar = tqdm(dataloader, total=max_episodes, ncols=80, desc='runn avg.', disable=(utils.get_rank() != 0), file=sys.stderr, dynamic_ncols=True)
@@ -143,7 +225,19 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         prompt_dict = build_prompt_dict(support_masks, args.prompt, n_shots=args.shots, train_mode=False, device=model.device)
 
         with torch.no_grad():
-            if uq_state is None:
+            if support_uq_state is not None:
+                outputs, used_fallback, support_scores = _predict_weighted_support_logits(
+                    model,
+                    query_img,
+                    support_imgs,
+                    support_masks,
+                    args,
+                    support_uq_state,
+                )
+                support_fallback_count += int(used_fallback)
+                support_score_sum += sum(support_scores)
+                support_score_count += len(support_scores)
+            elif uq_state is None:
                 outputs = model(imgs, prompt_dict)
             else:
                 model.hflip_tta = False
@@ -193,6 +287,9 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     print('Fold %d mIoU: %5.2f \t FB-IoU: %5.2f' % (args.fold, miou, fb_iou.item()))
     if args.uq_hflip_tta:
         print(f'UQ-gated hflip triggered on {gated_hflip_count}/{max_episodes} episodes at threshold {args.uq_gate_threshold:.3f}')
+    if args.support_agg != "none":
+        mean_score = support_score_sum / max(support_score_count, 1)
+        print(f'Support aggregation: {args.support_agg}; fallback on {support_fallback_count}/{max_episodes} episodes; mean support score {mean_score:.3f}')
     print('==================== Finished Testing ====================')
 
     return miou
