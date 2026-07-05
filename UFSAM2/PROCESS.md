@@ -206,13 +206,15 @@ MPLCONFIGDIR=/tmp/matplotlib CUDA_VISIBLE_DEVICES=1 python inference_fss.py \
 
 Repeat the same three commands with `--shots 5` and matching experiment names for the 5-shot small loop before launching full fold0 runs without `--max_eval_episodes`.
 
-Pascal-Part fold0 1-shot smoke result reported from GPU run (`--max_eval_episodes 50`):
+Pascal-Part fold0 1-shot smoke results reported from GPU runs (`--max_eval_episodes 50`):
 
-| setting | threshold | triggered | mIoU | FB-IoU | note |
-| --- | ---: | ---: | ---: | ---: | --- |
-| UQ-gated hflip | 0.7 | 46/50 | 31.64 | 62.93 | Gate is very permissive; compute is close to pure hflip. Need same-episode baseline and pure hflip before judging benefit. |
+| setting | threshold | triggered | mIoU | FB-IoU | delta vs baseline | delta vs hflip | note |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| SANSA baseline | - | 0/50 | 30.78 | 62.07 | - | -0.94 / -0.95 | no TTA |
+| pure hflip TTA | - | 50/50 | 31.72 | 63.02 | +0.94 / +0.95 | - | best current smoke result |
+| UQ-gated hflip | 0.7 | 46/50 | 31.64 | 62.93 | +0.86 / +0.86 | -0.08 / -0.09 | very permissive gate; close to pure hflip but not better |
 
-Immediate read: `t=0.7` is probably too high for a compute-saving gate on this smoke split because it triggers 92% of episodes. It may still match pure hflip, but the key comparison is whether it beats pure hflip at lower trigger rates such as `t=0.3/0.4/0.5/0.6`.
+Immediate read: pure hflip clearly improves the 50-episode smoke split. UQ-gated hflip at `t=0.7` keeps most of that gain while skipping only 4/50 flips, so it is not yet a strong uncertainty-guided efficiency or accuracy result. The next useful test is lower thresholds (`t=0.3/0.4/0.5/0.6`): a good gate should either match/exceed pure hflip or stay close while triggering substantially fewer than 50/50 episodes.
 
 ### FSS-1000
 
