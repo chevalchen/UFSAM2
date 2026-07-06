@@ -56,7 +56,7 @@
 - 按 reliability 融合 logits。
 - 当 support 分数过于接近或过低时可 fallback 到 all-support SANSA。
 
-当前结论：裸 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；加入更保守的 fallback 后，COCO-20i 5-shot full 4 folds 已完成。目前 `support_fallback_margin=0.20` 是 Module B 主候选。
+当前结论：裸 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；加入更保守的 fallback 后，COCO-20i 5-shot full 4 folds 已完成，但 mIoU 仍低于 SANSA official 5-shot baseline `64.3`。因此当前 `support_fallback_margin=0.20` 只能作为 ablation，不能作为主结果。
 
 ## 3. 当前代码状态
 
@@ -73,7 +73,7 @@
 当前限制：
 
 - `--support_agg` 暂未和 `--uq_hflip_tta` 合并。
-- 裸 weighted logits 不适合直接跑 full COCO；带 fallback 的 `margin=0.20` 版本是当前 Module B 主候选。
+- 裸 weighted logits 不适合直接跑 full COCO；带 fallback 的 `margin=0.20` 版本已完成 full eval，但低于 SANSA 5-shot official mIoU，不能作为主方法定稿。
 
 ## 4. Official Results
 
@@ -171,11 +171,19 @@ BRM always + UQ-gated hflip，threshold `0.3`：
 | 3 | 1000 | 59.69 | 78.88 | 464/1000 | 0.574 | 0.692 | 0.271 |
 | mean | - | 63.67 | 79.91 | 1964/4000 | 0.564 | 0.679 | 0.263 |
 
+Baseline alignment:
+
+| Method | 5-shot mean mIoU | Delta |
+| --- | ---: | ---: |
+| SANSA official / paper baseline | 64.30 | - |
+| UQ-weighted logits + fallback margin 0.20 | 63.67 | -0.63 |
+
 读法：
 
 - Module B full 4-fold evaluation 已完成，均值 `63.67 / 79.91`。
 - Fallback rate 为 `1964/4000 = 49.1%`，说明当前方法不是裸替换 SANSA，而是约一半 episode 回退到 all-support baseline。
-- 下一步将该结果与 SANSA paper / official baseline 表对齐，形成 strict FSS 5-shot 主表候选。
+- 与 SANSA official 5-shot baseline `64.3` 相比，当前 mIoU 是 `-0.63`，不能作为主结果。
+- 当前结论：weighted-logits fallback 在 official path 上跑通，但不是足够强的 Module B；需要 adaptive-k、COCO-specific reliability head，或与 A 组合后重新验证。
 
 ## 5. 诊断结果摘要
 
@@ -230,10 +238,10 @@ Module A:
 
 Module B:
 
-1. 用 SANSA paper / official table 作为 matched baseline，对齐 COCO-20i 5-shot 4-fold mean。
-2. 如果相对 SANSA baseline 正向，整理 strict FSS 5-shot 主表候选。
-3. 然后考虑 A+B 或 1-shot Module A strict FSS。
-4. 如果 baseline 对齐后增益不足，再实现更保守的 `adaptive-k + fallback` 或训练 COCO-specific support reliability head。
+1. 不把当前 `weighted_logits + margin 0.20` 作为主结果；它低于 SANSA official 5-shot mIoU `64.3`。
+2. 优先实现更强的 Module B：`adaptive-k + fallback` 或 COCO-specific support reliability head。
+3. 同时评估是否需要先做 1-shot Module A strict FSS / A+B，寻找真正能超过 SANSA 的组合。
+4. 后续所有 strict FSS 主表必须显式列出 SANSA official baseline 与 delta。
 
 ## 8. 常用命令骨架
 

@@ -44,7 +44,7 @@ Current limitations:
 
 - `--support_agg` is not yet combined with `--uq_hflip_tta`.
 - Naked weighted logits is not ready for full COCO because it hurts mIoU.
-- The fallback-controlled version with `--support_fallback_margin 0.20` is the current Module B candidate; COCO-20i 5-shot full 4-fold evaluation is complete.
+- The fallback-controlled version with `--support_fallback_margin 0.20` completed COCO-20i 5-shot full 4-fold evaluation, but it is below the SANSA official 5-shot mIoU baseline (`63.67` vs `64.3`). Treat it as an ablation, not the main result.
 
 ## Environment
 
@@ -161,11 +161,19 @@ Setting: COCO-20i fold adapters, `shots=5`, `--support_agg weighted_logits --sup
 | 3 | 1000 | 59.69 | 78.88 | 464/1000 | 0.574 | 0.692 | 0.271 |
 | mean | - | 63.67 | 79.91 | 1964/4000 | 0.564 | 0.679 | 0.263 |
 
+Baseline alignment:
+
+| Method | 5-shot mean mIoU | Delta |
+| --- | ---: | ---: |
+| SANSA official / paper baseline | 64.30 | - |
+| UQ-weighted logits + fallback margin 0.20 | 63.67 | -0.63 |
+
 Read:
 
 - Full COCO 5-shot 4-fold evaluation is complete; mean is `63.67 / 79.91`.
 - Fallback rate is `1964/4000 = 49.1%`, so the method acts as a conservative controller rather than always replacing all-support SANSA.
-- Use SANSA paper / official table values as the matched baseline; do not spend time rerunning full baselines unless a setting mismatch is found.
+- Against the SANSA official 5-shot baseline (`64.3` mIoU), this is negative by `-0.63` mIoU.
+- Current read: the official-path implementation is useful, but weighted-logits fallback is not strong enough to be the main Module B result.
 
 ## Diagnostic Summary
 
@@ -180,13 +188,14 @@ Keep these as motivation only:
 
 ## Current Priorities
 
-1. Finalize the COCO-20i 5-shot Module B table.
-   - Compare the 4-fold mean against SANSA paper / official baseline values.
-   - If the matched-baseline gain is weak, move to adaptive-k or a COCO-specific support reliability head.
+1. Replace the current Module B candidate.
+   - Do not use `weighted_logits + margin 0.20` as the main result; it is below SANSA 5-shot mIoU.
+   - Try adaptive-k + fallback or a COCO-specific support reliability head.
+   - Keep the completed weighted-logits run as an ablation / implementation proof.
 
 2. Build the strict FSS main table.
-   - First: COCO-20i 5-shot SANSA vs Module B.
-   - Then: add 1-shot / Module A or A+B if time allows.
+   - Every strict FSS row must include SANSA official baseline and delta.
+   - Add 1-shot / Module A or A+B if time allows.
    - Add FSS-1000 sanity check.
 
 3. Combine A+B only after Module B is stable.
