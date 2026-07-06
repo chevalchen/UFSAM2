@@ -56,7 +56,7 @@
 - 按 reliability 融合 logits。
 - 当 support 分数过于接近或过低时可 fallback 到 all-support SANSA。
 
-当前结论：裸 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；加入更保守的 fallback 后，COCO-20i fold0 smoke 转为正向。目前 `support_fallback_margin=0.20` 已完成 COCO-20i full fold0-2，fold3 待补。
+当前结论：裸 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；加入更保守的 fallback 后，COCO-20i 5-shot full 4 folds 已完成。目前 `support_fallback_margin=0.20` 是 Module B 主候选。
 
 ## 3. 当前代码状态
 
@@ -168,14 +168,14 @@ BRM always + UQ-gated hflip，threshold `0.3`：
 | 0 | 1000 | 63.45 | 78.15 | 458/1000 | 0.534 | 0.656 | 0.280 |
 | 1 | 1000 | 65.36 | 80.49 | 459/1000 | 0.557 | 0.680 | 0.273 |
 | 2 | 1000 | 66.18 | 82.11 | 583/1000 | 0.589 | 0.688 | 0.228 |
-| 0-2 mean | - | 65.00 | 80.25 | 1500/3000 | 0.560 | 0.675 | 0.260 |
-| 3 | pending | | | | | | |
+| 3 | 1000 | 59.69 | 78.88 | 464/1000 | 0.574 | 0.692 | 0.271 |
+| mean | - | 63.67 | 79.91 | 1964/4000 | 0.564 | 0.679 | 0.263 |
 
 读法：
 
-- Module B full evaluation 已完成 fold0-2，三折均值 `65.00 / 80.25`。
-- Fallback rate 为 `1500/3000 = 50.0%`，说明当前方法不是裸替换 SANSA，而是约一半 episode 回退到 all-support baseline。
-- fold3 跑完后再形成正式 4-fold mean，并与 SANSA paper / official baseline 表对比。
+- Module B full 4-fold evaluation 已完成，均值 `63.67 / 79.91`。
+- Fallback rate 为 `1964/4000 = 49.1%`，说明当前方法不是裸替换 SANSA，而是约一半 episode 回退到 all-support baseline。
+- 下一步将该结果与 SANSA paper / official baseline 表对齐，形成 strict FSS 5-shot 主表候选。
 
 ## 5. 诊断结果摘要
 
@@ -230,10 +230,10 @@ Module A:
 
 Module B:
 
-1. 补完 COCO fold3 5-shot full `--support_fallback_margin 0.20`。
-2. 用 SANSA paper / official table 作为 matched baseline，对齐 4-fold mean。
-3. 如果 4-fold mean 正向，再考虑 A+B 或 1-shot Module A strict FSS。
-4. 如果 fold3 拉低明显，再实现更保守的 `adaptive-k + fallback` 或训练 COCO-specific support reliability head。
+1. 用 SANSA paper / official table 作为 matched baseline，对齐 COCO-20i 5-shot 4-fold mean。
+2. 如果相对 SANSA baseline 正向，整理 strict FSS 5-shot 主表候选。
+3. 然后考虑 A+B 或 1-shot Module A strict FSS。
+4. 如果 baseline 对齐后增益不足，再实现更保守的 `adaptive-k + fallback` 或训练 COCO-specific support reliability head。
 
 ## 8. 常用命令骨架
 
