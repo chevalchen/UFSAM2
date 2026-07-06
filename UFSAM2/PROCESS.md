@@ -44,7 +44,7 @@ Current limitations:
 
 - `--support_agg` is not yet combined with `--uq_hflip_tta`.
 - Naked weighted logits is not ready for full COCO because it hurts mIoU.
-- The fallback-controlled version with `--support_fallback_margin 0.20` is now the first fold0-full candidate.
+- The fallback-controlled version with `--support_fallback_margin 0.20` is the current Module B candidate; COCO-20i full fold0-2 are complete and fold3 is pending.
 
 ## Environment
 
@@ -147,7 +147,25 @@ Read:
 - COCO-20i naked weighted logits is not a main-metric win: `-1.36` mIoU and `+0.82` FB-IoU.
 - With fallback, `margin=0.20` is the best smoke setting: `+1.06` mIoU and `+2.17` FB-IoU over baseline.
 - `min_score=0.60` is not useful as the main rule because it hurts mIoU.
-- Next: run full COCO fold0 baseline and full COCO fold0 `margin=0.20`.
+- Next: finish full COCO fold3 and compare the 4-fold mean against the SANSA paper / official baseline.
+
+### COCO-20i 5-shot Full, Module B
+
+Setting: COCO-20i fold adapters, `shots=5`, `--support_agg weighted_logits --support_fallback_margin 0.20`, official `inference_fss.py`.
+
+| Fold | Episodes | mIoU | FB-IoU | Fallback | Mean score | Mean max score | Mean margin |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 1000 | 63.45 | 78.15 | 458/1000 | 0.534 | 0.656 | 0.280 |
+| 1 | 1000 | 65.36 | 80.49 | 459/1000 | 0.557 | 0.680 | 0.273 |
+| 2 | 1000 | 66.18 | 82.11 | 583/1000 | 0.589 | 0.688 | 0.228 |
+| 0-2 mean | - | 65.00 | 80.25 | 1500/3000 | 0.560 | 0.675 | 0.260 |
+| 3 | pending | | | | | | |
+
+Read:
+
+- Full COCO fold0-2 are complete; interim mean is `65.00 / 80.25`.
+- Fallback rate is `1500/3000 = 50.0%`, so the method acts as a conservative controller rather than always replacing all-support SANSA.
+- Use SANSA paper / official table values as the matched baseline; do not spend time rerunning full baselines unless a setting mismatch is found.
 
 ## Diagnostic Summary
 
@@ -162,14 +180,14 @@ Keep these as motivation only:
 
 ## Current Priorities
 
-1. Validate Module B on full COCO fold0.
-   - Run full COCO fold0 5-shot SANSA baseline.
-   - Run full COCO fold0 5-shot Module B with `--support_fallback_margin 0.20`.
-   - If full fold0 is not positive, move to adaptive-k or a COCO-specific support reliability head.
+1. Finish Module B full COCO.
+   - Run COCO fold3 5-shot Module B with `--support_fallback_margin 0.20`.
+   - Compare the 4-fold mean against SANSA paper / official baseline values.
+   - If fold3 breaks the trend, move to adaptive-k or a COCO-specific support reliability head.
 
 2. Build the strict FSS main table.
-   - First: COCO-20i fold0 5-shot SANSA vs improved Module B.
-   - Then: COCO-20i fold0-3.
+   - First: COCO-20i 5-shot SANSA vs Module B.
+   - Then: add 1-shot / Module A or A+B if time allows.
    - Add FSS-1000 sanity check.
 
 3. Combine A+B only after Module B is stable.

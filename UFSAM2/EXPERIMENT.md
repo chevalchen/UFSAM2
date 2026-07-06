@@ -56,7 +56,7 @@
 - 按 reliability 融合 logits。
 - 当 support 分数过于接近或过低时可 fallback 到 all-support SANSA。
 
-当前结论：裸 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；加入更保守的 fallback 后，COCO-20i fold0 smoke 转为正向。目前 `support_fallback_margin=0.20` 是进入 full fold0 的首选候选。
+当前结论：裸 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；加入更保守的 fallback 后，COCO-20i fold0 smoke 转为正向。目前 `support_fallback_margin=0.20` 已完成 COCO-20i full fold0-2，fold3 待补。
 
 ## 3. 当前代码状态
 
@@ -73,7 +73,7 @@
 当前限制：
 
 - `--support_agg` 暂未和 `--uq_hflip_tta` 合并。
-- 裸 weighted logits 不适合直接跑 full COCO；带 fallback 的 `margin=0.20` 版本可以进入 fold0 full 验证。
+- 裸 weighted logits 不适合直接跑 full COCO；带 fallback 的 `margin=0.20` 版本是当前 Module B 主候选。
 
 ## 4. Official Results
 
@@ -157,7 +157,25 @@ BRM always + UQ-gated hflip，threshold `0.3`：
 - COCO-20i 裸 weighted logits 主指标负向：`-1.36` mIoU，`+0.82` FB-IoU。
 - 加入 fallback 后，`margin=0.20` 最好：相对 baseline `+1.06` mIoU，`+2.17` FB-IoU。
 - `min_score=0.60` 不适合作为当前规则，会显著伤害 mIoU。
-- 下一步跑 COCO fold0 full：baseline vs `margin=0.20` Module B。
+- 当前已进入 COCO full evaluation。
+
+### 4.5 COCO-20i 5-shot Module B Full
+
+设置：COCO-20i fold adapters，`shots=5`，`--support_agg weighted_logits --support_fallback_margin 0.20`，official `inference_fss.py`。
+
+| Fold | Episodes | mIoU | FB-IoU | Fallback | Mean score | Mean max score | Mean margin |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 1000 | 63.45 | 78.15 | 458/1000 | 0.534 | 0.656 | 0.280 |
+| 1 | 1000 | 65.36 | 80.49 | 459/1000 | 0.557 | 0.680 | 0.273 |
+| 2 | 1000 | 66.18 | 82.11 | 583/1000 | 0.589 | 0.688 | 0.228 |
+| 0-2 mean | - | 65.00 | 80.25 | 1500/3000 | 0.560 | 0.675 | 0.260 |
+| 3 | pending | | | | | | |
+
+读法：
+
+- Module B full evaluation 已完成 fold0-2，三折均值 `65.00 / 80.25`。
+- Fallback rate 为 `1500/3000 = 50.0%`，说明当前方法不是裸替换 SANSA，而是约一半 episode 回退到 all-support baseline。
+- fold3 跑完后再形成正式 4-fold mean，并与 SANSA paper / official baseline 表对比。
 
 ## 5. 诊断结果摘要
 
@@ -212,11 +230,10 @@ Module A:
 
 Module B:
 
-1. 跑 COCO fold0 5-shot full baseline。
-2. 跑 COCO fold0 5-shot full `--support_fallback_margin 0.20`。
-3. 如果 full fold0 仍正向，再扩展 COCO fold1-3。
-4. 如果 full fold0 不稳，再实现更保守的 `adaptive-k + fallback` 或训练 COCO-specific support reliability head。
-5. A+B 组合等 Module B 独立站稳后再接。
+1. 补完 COCO fold3 5-shot full `--support_fallback_margin 0.20`。
+2. 用 SANSA paper / official table 作为 matched baseline，对齐 4-fold mean。
+3. 如果 4-fold mean 正向，再考虑 A+B 或 1-shot Module A strict FSS。
+4. 如果 fold3 拉低明显，再实现更保守的 `adaptive-k + fallback` 或训练 COCO-specific support reliability head。
 
 ## 8. 常用命令骨架
 
