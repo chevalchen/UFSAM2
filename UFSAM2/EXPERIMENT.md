@@ -4,82 +4,128 @@
 
 核心目标：把 uncertainty 从诊断信号变成能提升 official FSS `mIoU / FB-IoU` 的 SANSA 改进模块。最终主表必须是标准 FSS 表，而不是 support-selection 诊断表。
 
-## 1. 主线设定
+## 1. 实验组织
 
-最终论文表格需要：
+后续所有实验按两级组织：
 
-- `1-shot / 5-shot`
-- `fold0 / fold1 / fold2 / fold3 / mean`
-- official `mIoU / FB-IoU`
-- 主结论：`Ours` 超过 `SANSA baseline`
+1. **Strict FSS**
+   - 数据：COCO-20i、FSS-1000、可能补 Pascal-5i。
+   - 权重：fold-specific FSS adapters，例如 `pretrain/coco-20i-4/adapter_coco_fold{0..3}.pth`。
+   - 作用：论文主表；必须对齐 SANSA paper / official baseline。
+2. **Generalist In-context**
+   - 数据：Pascal-Part、PACO-Part。
+   - 权重：`pretrain/adapter_generalist.pth`，`channel_factor=0.8`。
+   - 作用：和 SANSA generalist setting 对齐，主要支撑 part ambiguity / boundary / support reliability 的辅助结论。
 
-当前采用两条实验线：
+每个设置内部再分：
 
-| 实验线 | 数据 / 权重 | 作用 | 主表地位 |
-| --- | --- | --- | --- |
-| Generalist part segmentation | Pascal-Part / PACO-Part, `adapter_generalist.pth`, `channel_factor=0.8` | Module A 辅助证明：part ambiguity、边界、小部件 | 辅助表 |
-| Strict FSS | COCO-20i fold weights, FSS-1000, possibly Pascal-5i | 最终标准 FSS 主表，尤其 5-shot Module B / A+B | 主结论 |
+- **Baseline**：SANSA 原始设置或 paper/README 可直接引用的 official 数字。
+- **Module A**：Uncertainty-Guided Ambiguity Refinement，包括 hflip、UQ-gated hflip、BRM。
+- **Module B**：Uncertainty-Guided Support Reliability and Aggregation，包括 weighted logits、adaptive-k、fallback。
+- **A+B**：Module A 和 Module B 的最终组合。
 
-重要约束：
+参数变体必须挂在对应模块下面，例如 `uq_gate_threshold=0.3` 属于 Module A，`support_fallback_margin=0.20` 属于 Module B。
 
-- support-selection avg IoU、calibration、AUROC、risk curve 只能作为辅助分析。
-- 最终结果必须来自 `inference_fss.py` official evaluation。
-- Pascal-Part / PACO-Part generalist 不能替代 strict FSS 主表。
+## 2. Strict FSS
 
-## 2. 方法故事
+### 2.1 Baseline
 
-### Module A: Uncertainty-Guided Ambiguity Refinement
+Strict FSS baseline 优先使用 SANSA paper / official table，因为最终主表要和 SANSA 对齐。
 
-目标：处理边界模糊、部件边缘不准、小部件断裂和高风险 query prediction。
+| Dataset | Shot | SANSA mean mIoU | Notes |
+| --- | ---: | ---: | --- |
+| COCO-20i | 1-shot | 60.2 | SANSA paper / official |
+| COCO-20i | 5-shot | 64.3 | SANSA paper / official |
+| FSS-1000 | 1-shot | 91.4 | SANSA paper / official |
+| FSS-1000 | 5-shot | 92.1 | SANSA paper / official |
 
-当前实现：
+主表格式必须包含 `fold0 / fold1 / fold2 / fold3 / mean`，并在可获得时同时报告 `mIoU / FB-IoU`。
 
-- `--hflip_tta`: 纯 hflip TTA，作为 no-training refinement baseline。
-- `--uq_hflip_tta`: 先用 expected-IoU head 判断风险，只在低置信 episode 触发 hflip。
-- `--boundary_refine`: 打开 BRM，BRM 是 trainable boundary refinement branch。
+### 2.2 Module A
+
+Strict FSS 的 Module A 尚未形成正式主结果。当前 Module A 证据主要来自 Generalist In-context 的 Pascal-Part / PACO-Part。
+
+可尝试方向：
+
+- COCO-20i 1-shot：`hflip` vs `UQ-gated hflip`。
+- COCO-20i 5-shot：在 Module B 稳定后再考虑 A+B。
+
+### 2.3 Module B
+
+当前 official-path prototype：`--support_agg weighted_logits`，使用 support-query expected-IoU score 做 support reliability，加权融合每个 support 的 query logits，并用 fallback 控制风险。
+
+#### COCO-20i 5-shot smoke
+
+| Fold | Episodes | Method | mIoU | FB-IoU | Extra |
+| ---: | ---: | --- | ---: | ---: | --- |
+| 0 | 50 | SANSA all-support baseline | 59.83 | 79.73 | local smoke |
+| 0 | 50 | UQ-weighted logits, margin 0.03 | 58.47 | 80.55 | fallback 0/50 |
+| 0 | 50 | UQ-weighted logits, margin 0.10 | 60.43 | 81.37 | fallback 12/50 |
+| 0 | 50 | UQ-weighted logits, margin 0.20 | 60.89 | 81.90 | fallback 29/50 |
+| 0 | 50 | UQ-weighted logits, min score 0.60 | 57.79 | 78.97 | fallback 16/50 |
+| 0 | 50 | UQ-weighted logits, margin 0.10 + min score 0.60 | 59.85 | 79.91 | fallback 25/50 |
+
+读法：`margin=0.20` 在 smoke 上最好，但 smoke 不能替代 full fold evaluation。
+
+#### COCO-20i 5-shot full, margin 0.20
+
+设置：`--support_agg weighted_logits --support_fallback_margin 0.20`。
+
+| Fold | Episodes | mIoU | FB-IoU | Fallback | Mean score | Mean max score | Mean margin |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 1000 | 63.45 | 78.15 | 458/1000 | 0.534 | 0.656 | 0.280 |
+| 1 | 1000 | 65.36 | 80.49 | 459/1000 | 0.557 | 0.680 | 0.273 |
+| 2 | 1000 | 66.18 | 82.11 | 583/1000 | 0.589 | 0.688 | 0.228 |
+| 3 | 1000 | 59.69 | 78.88 | 464/1000 | 0.574 | 0.692 | 0.271 |
+| mean | - | 63.67 | 79.91 | 1964/4000 | 0.564 | 0.679 | 0.263 |
+
+Baseline alignment:
+
+| Method | COCO-20i 5-shot mean mIoU | Delta vs SANSA |
+| --- | ---: | ---: |
+| SANSA official / paper baseline | 64.30 | - |
+| UQ-weighted logits + fallback margin 0.20 | 63.67 | -0.63 |
+
+当前判断：
+
+- 这条 Module B 已经跑通 official path，但不能作为主结果。
+- 它低于 SANSA 5-shot official baseline `64.3`，只能作为 ablation / implementation proof。
+- 下一步应优先换成更强的 adaptive-k、COCO-specific reliability head，或更保守的 gating 策略。
+
+### 2.4 A+B
+
+尚未形成正式组合结果。
+
+当前代码中 `--support_agg` 暂未和 `--uq_hflip_tta` 合并；即使合并，也应等 Module B 本身不低于 SANSA 后再作为主线推进。
+
+## 3. Generalist In-context
+
+### 3.1 Baseline
+
+设置：`adapter_generalist.pth`，`channel_factor=0.8`。
+
+以下为 1-shot mIoU，按 `fold0 / fold1 / fold2 / fold3 / mean` 记录：
+
+| Dataset | Shot | Weight | F0 | F1 | F2 | F3 | Mean |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Pascal-Part | 1-shot | `adapter_generalist.pth` | 36.29 | 65.16 | 38.20 | 56.77 | 49.105 |
+| PACO-Part | 1-shot | `adapter_generalist.pth` | 40.27 | 44.20 | 46.09 | 41.24 | 42.95 |
+
+注意：上表是 mIoU fold row，不包含 FB-IoU；不要把其中的 fold 数字当成 FB-IoU。
+
+### 3.2 Module A
+
+Module A 包含：
+
+- pure hflip：`--hflip_tta`
+- UQ-gated hflip：`--uq_hflip_tta --uq_gate_threshold ...`
+- BRM：`--boundary_refine`，BRM 是 trainable boundary-aware mask refinement branch，不是 TTA。
 
 推荐表述：
 
 > BRM is a trainable boundary-aware mask refinement branch, hflip is a test-time consistency refinement, and uncertainty controls when to trigger the extra refinement.
 
-不要把 BRM 写成 frozen uncertainty baseline，也不要把 BRM 说成 TTA。
-
-### Module B: Uncertainty-Guided Support Reliability And Aggregation
-
-目标：解决 5-shot 中 support 质量不均的问题。SANSA 默认把多个 support 等价写入 memory，低质量 support 可能污染语义或边界。
-
-当前实现：
-
-- `--support_agg weighted_logits`
-- 每个 support 单独 forward，得到 query logits。
-- 用 support-query expected-IoU score 估计 reliability。
-- 按 reliability 融合 logits。
-- 当 support 分数过于接近或过低时可 fallback 到 all-support SANSA。
-
-当前结论：裸 weighted logits 在 Pascal-Part smoke 正向，但 COCO-20i smoke 的 mIoU 负向；加入更保守的 fallback 后，COCO-20i 5-shot full 4 folds 已完成，但 mIoU 仍低于 SANSA official 5-shot baseline `64.3`。因此当前 `support_fallback_margin=0.20` 只能作为 ablation，不能作为主结果。
-
-## 3. 当前代码状态
-
-已接入 official `inference_fss.py`：
-
-| 功能 | 参数 | 状态 |
-| --- | --- | --- |
-| pure hflip | `--hflip_tta` | 已实现 |
-| UQ-gated hflip | `--uq_hflip_tta --uq_head_ckpt ... --uq_gate_threshold ...` | 已实现 |
-| BRM | `--boundary_refine` | 已实现，需使用带 `brm.*` 的 checkpoint |
-| Module B weighted logits | `--support_agg weighted_logits --support_uq_head_ckpt ...` | 已实现第一版 |
-| smoke episode cap | `--max_eval_episodes` | 已实现 |
-
-当前限制：
-
-- `--support_agg` 暂未和 `--uq_hflip_tta` 合并。
-- 裸 weighted logits 不适合直接跑 full COCO；带 fallback 的 `margin=0.20` 版本已完成 full eval，但低于 SANSA 5-shot official mIoU，不能作为主方法定稿。
-
-## 4. Official Results
-
-### 4.1 Pascal-Part Fold0 1-shot
-
-设置：generalist adapter，`channel_factor=0.8`，official `inference_fss.py`。
+#### Pascal-Part 1-shot, fold0
 
 | Method | Threshold | Triggered | mIoU | FB-IoU |
 | --- | ---: | ---: | ---: | ---: |
@@ -90,9 +136,9 @@
 
 读法：UQ-gated hflip 在 fold0 上超过 pure hflip；`t=0.3` 和 `t=0.4` mIoU 相同，`t=0.3` 更省。
 
-### 4.2 Pascal-Part 4-fold Module A
+#### Pascal-Part 1-shot, 4 folds
 
-UQ-gated hflip，threshold `0.3`：
+UQ-gated hflip，`uq_gate_threshold=0.3`：
 
 | Fold | Episodes | Triggered | mIoU | FB-IoU |
 | ---: | ---: | ---: | ---: | ---: |
@@ -102,7 +148,7 @@ UQ-gated hflip，threshold `0.3`：
 | 3 | 2500 | 378 | 56.65 | 76.06 |
 | mean | - | - | 49.48 | 69.83 |
 
-BRM always + UQ-gated hflip，threshold `0.3`：
+BRM always + UQ-gated hflip，`uq_gate_threshold=0.3`：
 
 | Fold | Episodes | Triggered | mIoU | FB-IoU |
 | ---: | ---: | ---: | ---: | ---: |
@@ -119,9 +165,9 @@ BRM always + UQ-gated hflip，threshold `0.3`：
 - 相比旧 BRM+unconditional hflip (`49.61 / 69.82`)，BRM+UQ 基本持平，但只在 28.6% episodes 上跑 hflip。
 - Module A 的主说法应是“uncertainty-controlled refinement efficiency with comparable/slightly better mIoU”，不要夸成大幅 accuracy gain。
 
-### 4.3 PACO-Part 4-fold Module A
+#### PACO-Part 1-shot, 4 folds
 
-BRM always + UQ-gated hflip，threshold `0.3`：
+BRM always + UQ-gated hflip，`uq_gate_threshold=0.3`：
 
 | Fold | Episodes | Triggered | mIoU | FB-IoU |
 | ---: | ---: | ---: | ---: | ---: |
@@ -138,154 +184,62 @@ BRM always + UQ-gated hflip，threshold `0.3`：
 - 当前 BRM+UQ: `43.72 / 66.34`，mIoU `+0.07`，FB-IoU `-0.10`。
 - PACO 结论应写成“基本持平，省掉约三分之二 hflip”，而不是全面更好。
 
-### 4.4 Module B Official-Path Smoke
+### 3.3 Module B
+
+Generalist In-context 的 Module B 目前只有 Pascal-Part 5-shot smoke 正向，正式 4-fold 结果仍待补。
 
 | Dataset | Fold | Shots | Episodes | Method | mIoU | FB-IoU | Extra |
 | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
-| Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | - |
+| Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | local smoke |
 | Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean score 0.415 |
-| COCO-20i | 0 | 5 | 50 | SANSA all-support baseline | 59.83 | 79.73 | - |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.03 | 58.47 | 80.55 | fallback 0/50, mean score 0.540 |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.10 | 60.43 | 81.37 | fallback 12/50, mean margin 0.249 |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.20 | 60.89 | 81.90 | fallback 29/50, mean margin 0.249 |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, min score 0.60 | 57.79 | 78.97 | fallback 16/50 |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.10 + min score 0.60 | 59.85 | 79.91 | fallback 25/50 |
 
-读法：
+当前判断：
 
 - Pascal-Part 5-shot smoke 正向：`+1.59` mIoU，`+4.39` FB-IoU。
-- COCO-20i 裸 weighted logits 主指标负向：`-1.36` mIoU，`+0.82` FB-IoU。
-- 加入 fallback 后，`margin=0.20` 最好：相对 baseline `+1.06` mIoU，`+2.17` FB-IoU。
-- `min_score=0.60` 不适合作为当前规则，会显著伤害 mIoU。
-- 当前已进入 COCO full evaluation。
+- 这可以支持 Module B 在 part generalist setting 下有潜力，但不能替代 strict FSS 主表。
+- 若要写成正式 auxiliary result，需要跑 Pascal-Part / PACO-Part matched full 4-fold 5-shot baseline 和 Module B。
 
-### 4.5 COCO-20i 5-shot Module B Full
+### 3.4 A+B
 
-设置：COCO-20i fold adapters，`shots=5`，`--support_agg weighted_logits --support_fallback_margin 0.20`，official `inference_fss.py`。
+尚未形成正式结果。Generalist A+B 应在 Module B full 4-fold 正向后再跑，避免把不同设置和不同参数混成一个主张。
 
-| Fold | Episodes | mIoU | FB-IoU | Fallback | Mean score | Mean max score | Mean margin |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0 | 1000 | 63.45 | 78.15 | 458/1000 | 0.534 | 0.656 | 0.280 |
-| 1 | 1000 | 65.36 | 80.49 | 459/1000 | 0.557 | 0.680 | 0.273 |
-| 2 | 1000 | 66.18 | 82.11 | 583/1000 | 0.589 | 0.688 | 0.228 |
-| 3 | 1000 | 59.69 | 78.88 | 464/1000 | 0.574 | 0.692 | 0.271 |
-| mean | - | 63.67 | 79.91 | 1964/4000 | 0.564 | 0.679 | 0.263 |
+## 4. 代码状态
 
-Baseline alignment:
+`inference_fss.py` 已支持：
 
-| Method | 5-shot mean mIoU | Delta |
-| --- | ---: | ---: |
-| SANSA official / paper baseline | 64.30 | - |
-| UQ-weighted logits + fallback margin 0.20 | 63.67 | -0.63 |
+| 功能 | 参数 | 状态 |
+| --- | --- | --- |
+| pure hflip | `--hflip_tta` | 已实现 |
+| UQ-gated hflip | `--uq_hflip_tta --uq_head_ckpt ... --uq_gate_threshold ...` | 已实现 |
+| BRM | `--boundary_refine` | 已实现，需使用带 `brm.*` 的 checkpoint |
+| Module B weighted logits | `--support_agg weighted_logits --support_uq_head_ckpt ...` | 已实现第一版 |
+| smoke episode cap | `--max_eval_episodes` | 已实现 |
 
-读法：
+当前限制：
 
-- Module B full 4-fold evaluation 已完成，均值 `63.67 / 79.91`。
-- Fallback rate 为 `1964/4000 = 49.1%`，说明当前方法不是裸替换 SANSA，而是约一半 episode 回退到 all-support baseline。
-- 与 SANSA official 5-shot baseline `64.3` 相比，当前 mIoU 是 `-0.63`，不能作为主结果。
-- 当前结论：weighted-logits fallback 在 official path 上跑通，但不是足够强的 Module B；需要 adaptive-k、COCO-specific reliability head，或与 A 组合后重新验证。
+- `--support_agg` 暂未和 `--uq_hflip_tta` 合并。
+- 当前 `weighted_logits + margin 0.20` 低于 SANSA COCO-20i 5-shot official baseline，不能作为主方法定稿。
 
-## 5. 诊断结果摘要
+## 5. 下一步
 
-这些结果只支持方法动机，不作为主表：
-
-| Dataset | 结论 |
-| --- | --- |
-| FSS-1000 | near ceiling；token head 有风险预测信号，但主提升空间小 |
-| Pascal-Part support selection | token consistently beats random/SAM-score and roughly ties all-supports; oracle gap large |
-| PACO-Part support selection | mixed/tokens-match improves diagnostics, but top1 intervention 不稳定 |
-| memory propagation risk | SANSA official baseline 不使用 query-to-query sequential propagation；该分支暂停 |
-
-关键判断：Module B 不能停在 top1 support selection，必须落到 official FSS aggregation。
-
-## 6. 目标表格
-
-### Strict FSS Main Table
-
-这是最终主结论表。
-
-| Method | 1-shot F0 | F1 | F2 | F3 | Mean | 5-shot F0 | F1 | F2 | F3 | Mean |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| SANSA | | | | | | | | | | |
-| SANSA + Module A | | | | | | | | | | |
-| SANSA + Module B | - | - | - | - | - | | | | | |
-| Ours A+B | | | | | | | | | | |
-
-优先级：
-
-1. COCO-20i 5-shot fold0：先找出不伤 mIoU 的 Module B。
-2. COCO-20i 4 folds：主表。
-3. FSS-1000：sanity / near-ceiling check。
-4. Pascal-5i：仅在 protocol 和权重足够干净时补。
-
-### Generalist Part Segmentation Auxiliary Table
-
-| Method | Pascal-Part F0 | F1 | F2 | F3 | Mean | PACO-Part Mean |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| SANSA | 36.29 | | | | | |
-| SANSA + hflip | 37.21 | | | | | |
-| SANSA + UQ-gated hflip | 37.49 | 65.27 | 38.49 | 56.65 | 49.48 | |
-| SANSA + BRM + UQ-gated hflip | 37.29 | 66.00 | 38.64 | 56.83 | 49.69 | 43.72 |
-
-注意：当前 Pascal/PACO UQ head 是 fold0 trained、cross-fold used。辅助表可以接受；若作为强 claim，需要 fold-specific 或 leave-one-fold-out head。
-
-## 7. 当前下一步
-
-Module A:
-
-- Pascal-Part / PACO-Part generalist line 已足够收口。
-- 不继续调 PACO threshold，除非 Module B 长期卡住。
-
-Module B:
+Strict FSS：
 
 1. 不把当前 `weighted_logits + margin 0.20` 作为主结果；它低于 SANSA official 5-shot mIoU `64.3`。
-2. 优先实现更强的 Module B：`adaptive-k + fallback` 或 COCO-specific support reliability head。
-3. 同时评估是否需要先做 1-shot Module A strict FSS / A+B，寻找真正能超过 SANSA 的组合。
-4. 后续所有 strict FSS 主表必须显式列出 SANSA official baseline 与 delta。
+2. 优先改进 Module B：`adaptive-k + fallback`、COCO-specific support reliability head，或更保守的 reliability gate。
+3. 每个 strict FSS 结果都必须显式列出 SANSA official baseline 与 delta。
 
-## 8. 常用命令骨架
+Generalist In-context：
 
-运行目录：
+1. Module A 的 Pascal-Part / PACO-Part 1-shot 结果已经足够作为辅助故事。
+2. 若继续推进 Generalist Module B，优先补 Pascal-Part / PACO-Part 5-shot full 4-fold matched baseline 和 Module B。
+3. A+B 等 Module B 正向后再组合。
 
-```bash
-cd /data6/chensq/UFSAM2/UFSAM2
-conda activate sam2coco
-export MPLCONFIGDIR=/tmp/matplotlib
-```
-
-COCO-20i 5-shot baseline smoke：
-
-```bash
-python inference_fss.py \
-  --dataset_file coco --prompt mask --shots 5 --fold 0 \
-  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.3 \
-  --device cuda --data_root /data6/chensq/datasets \
-  --resume pretrain/coco-20i-4/adapter_coco_fold0.pth \
-  --name_exp eval_coco_f0_5shot_baseline_smoke \
-  --max_eval_episodes 50
-```
-
-COCO-20i 5-shot Module B smoke：
-
-```bash
-python inference_fss.py \
-  --dataset_file coco --prompt mask --shots 5 --fold 0 \
-  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.3 \
-  --device cuda --data_root /data6/chensq/datasets \
-  --resume pretrain/coco-20i-4/adapter_coco_fold0.pth \
-  --name_exp eval_coco_f0_5shot_uq_weighted_logits_margin020_smoke \
-  --support_agg weighted_logits \
-  --support_uq_head_ckpt output/uncertainty_head_mixed_tokens_match_fss_pascal_paco/uncertainty_head.pt \
-  --support_fallback_margin 0.20 \
-  --max_eval_episodes 50
-```
-
-## 9. 不要偏航
+## 6. 不要偏航
 
 - 主表必须是 official FSS `mIoU / FB-IoU`。
 - 不要把 support-selection avg IoU 当主结果。
 - 不要把 calibration/AUROC 当主结果。
-- 不要把 Pascal-Part generalist 写成最终 strict FSS。
+- 不要把 Pascal-Part / PACO-Part generalist 写成最终 strict FSS。
 - 不要提交 checkpoints、cache、output、datasets。
 - 阶段性结论更新 `PROCESS.md` 或本文件并 commit。
 

@@ -1,6 +1,6 @@
 # UFSAM2 Process
 
-This file is the compact engineering/process log for branch `exp/uncertainty-guided-fss`.
+This is the compact engineering/process log for branch `exp/uncertainty-guided-fss`.
 
 ## Goal
 
@@ -15,36 +15,27 @@ The final claim must be an official FSS table:
 
 Support-selection IoU, calibration, AUROC, and risk curves are supporting evidence only. They cannot replace official FSS metrics.
 
-## Current Experiment Lines
+## Experiment Organization
 
-| Line | Dataset / weight | Role | Status |
-| --- | --- | --- | --- |
-| Generalist part segmentation | Pascal-Part / PACO-Part, `adapter_generalist.pth`, `channel_factor=0.8` | Module A auxiliary evidence | Mostly closed |
-| Strict FSS | COCO-20i fold adapters, FSS-1000, possibly Pascal-5i | Main paper table, especially 5-shot Module B / A+B | Active |
+Use a two-level structure for every result:
 
-## Code State
+1. **Strict FSS**
+   - Datasets: COCO-20i, FSS-1000, possibly Pascal-5i.
+   - Weights: fold-specific FSS adapters, e.g. `pretrain/coco-20i-4/adapter_coco_fold{0..3}.pth`.
+   - Role: main paper table.
+2. **Generalist In-context**
+   - Datasets: Pascal-Part and PACO-Part.
+   - Weight: `pretrain/adapter_generalist.pth`, `channel_factor=0.8`.
+   - Role: auxiliary SANSA-aligned generalist evidence.
 
-Official `inference_fss.py` now supports:
+Inside each setting, organize rows as:
 
-| Feature | Flag | Notes |
-| --- | --- | --- |
-| pure hflip TTA | `--hflip_tta` | averages normal/flipped query logits |
-| UQ-gated hflip | `--uq_hflip_tta --uq_head_ckpt ... --uq_gate_threshold ...` | runs hflip only for low expected-IoU episodes |
-| BRM | `--boundary_refine` | requires a checkpoint with `brm.*` weights |
-| Module B weighted logits | `--support_agg weighted_logits --support_uq_head_ckpt ...` | first official-path support aggregation prototype |
-| smoke cap | `--max_eval_episodes` | use only for small-loop validation |
+- **Baseline**
+- **Module A**: uncertainty-guided ambiguity refinement.
+- **Module B**: uncertainty-guided support reliability and aggregation.
+- **A+B**: final combination.
 
-Trace/uncertainty tools:
-
-- `collect_uncertainty_cache.py`: collects query/support decoder traces and true IoU.
-- `train_uncertainty_head.py`: trains expected-IoU heads; `tokens_match` includes support-query matching features.
-- `evaluate_support_selection.py`: diagnostic only; do not use it as the main result.
-
-Current limitations:
-
-- `--support_agg` is not yet combined with `--uq_hflip_tta`.
-- Naked weighted logits is not ready for full COCO because it hurts mIoU.
-- The fallback-controlled version with `--support_fallback_margin 0.20` completed COCO-20i 5-shot full 4-fold evaluation, but it is below the SANSA official 5-shot mIoU baseline (`63.67` vs `64.3`). Treat it as an ablation, not the main result.
+Parameter variants stay under the relevant module, e.g. `uq_gate_threshold=0.3` under Module A and `support_fallback_margin=0.20` under Module B.
 
 ## Environment
 
@@ -66,92 +57,45 @@ Key paths:
 
 GPU note: if using `CUDA_VISIBLE_DEVICES=1`, the visible device is still addressed as `--device cuda`.
 
-## Module A Results
+## Code State
 
-### Pascal-Part Fold0, 1-shot
+Official `inference_fss.py` supports:
 
-| Method | Threshold | Triggered | mIoU | FB-IoU |
-| --- | ---: | ---: | ---: | ---: |
-| SANSA baseline | - | - | 36.29 | 64.26 |
-| SANSA + hflip | - | 2500/2500 | 37.21 | 65.16 |
-| SANSA + UQ-gated hflip | 0.3 | 1017/2500 | 37.49 | 65.24 |
-| SANSA + UQ-gated hflip | 0.4 | 1235/2500 | 37.49 | 65.31 |
+| Feature | Flag | Notes |
+| --- | --- | --- |
+| pure hflip TTA | `--hflip_tta` | averages normal/flipped query logits |
+| UQ-gated hflip | `--uq_hflip_tta --uq_head_ckpt ... --uq_gate_threshold ...` | runs hflip only for low expected-IoU episodes |
+| BRM | `--boundary_refine` | requires a checkpoint with `brm.*` weights |
+| Module B weighted logits | `--support_agg weighted_logits --support_uq_head_ckpt ...` | first official-path support aggregation prototype |
+| smoke cap | `--max_eval_episodes` | use only for small-loop validation |
 
-Read: UQ-gated hflip beats pure hflip on fold0. Threshold `0.3` is the efficient default.
+Current limitations:
 
-### Pascal-Part 4-fold
+- `--support_agg` is not yet combined with `--uq_hflip_tta`.
+- `weighted_logits + support_fallback_margin=0.20` completed COCO-20i 5-shot full 4-fold evaluation, but it is below the SANSA official 5-shot mIoU baseline. Treat it as an ablation, not the main result.
 
-UQ-gated hflip, threshold `0.3`:
+## Strict FSS
 
-| Fold | Episodes | Triggered | mIoU | FB-IoU |
-| ---: | ---: | ---: | ---: | ---: |
-| 0 | 2500 | 1017 | 37.49 | 65.24 |
-| 1 | 959 | 112 | 65.27 | 72.39 |
-| 2 | 2500 | 908 | 38.49 | 65.63 |
-| 3 | 2500 | 378 | 56.65 | 76.06 |
-| mean | - | - | 49.48 | 69.83 |
+### Baseline
 
-BRM always + UQ-gated hflip, threshold `0.3`:
+Use SANSA paper / official numbers for baseline alignment whenever available.
 
-| Fold | Episodes | Triggered | mIoU | FB-IoU |
-| ---: | ---: | ---: | ---: | ---: |
-| 0 | 2500 | 1017 | 37.29 | 64.70 |
-| 1 | 959 | 112 | 66.00 | 72.83 |
-| 2 | 2500 | 908 | 38.64 | 65.53 |
-| 3 | 2500 | 378 | 56.83 | 76.09 |
-| mean | - | - | 49.69 | 69.79 |
+| Dataset | Shot | SANSA mean mIoU | Notes |
+| --- | ---: | ---: | --- |
+| COCO-20i | 1-shot | 60.2 | SANSA paper / official |
+| COCO-20i | 5-shot | 64.3 | SANSA paper / official |
+| FSS-1000 | 1-shot | 91.4 | SANSA paper / official |
+| FSS-1000 | 5-shot | 92.1 | SANSA paper / official |
 
-Read:
+### Module A
 
-- Trigger rate: `2415/8459 = 28.6%`.
-- BRM+UQ vs UQ-only: `+0.21` mIoU, `-0.04` FB-IoU.
-- BRM+UQ is effectively tied with prior BRM + unconditional hflip (`49.61 / 69.82`) while avoiding most hflip runs.
+No finalized strict-FSS Module A result yet. Current Module A evidence is mainly from the Generalist In-context part datasets.
 
-### PACO-Part 4-fold
+### Module B
 
-BRM always + UQ-gated hflip, threshold `0.3`:
+Current official-path prototype: `--support_agg weighted_logits`.
 
-| Fold | Episodes | Triggered | mIoU | FB-IoU |
-| ---: | ---: | ---: | ---: | ---: |
-| 0 | 2500 | 991 | 41.59 | 67.84 |
-| 1 | 2500 | 856 | 45.49 | 66.83 |
-| 2 | 2500 | 767 | 46.42 | 66.20 |
-| 3 | 2500 | 846 | 41.36 | 64.47 |
-| mean | - | - | 43.72 | 66.34 |
-
-Read:
-
-- Trigger rate: `3460/10000 = 34.6%`.
-- Prior PACO BRM + unconditional hflip from original logs: `43.65 / 66.44`.
-- Current BRM+UQ is essentially tied: `+0.07` mIoU, `-0.10` FB-IoU.
-- This closes the Module A generalist part-segmentation line for now.
-
-## Module B Results
-
-First official-path prototype: `--support_agg weighted_logits`.
-
-| Dataset | Fold | Shots | Episodes | Method | mIoU | FB-IoU | Extra |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
-| Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | - |
-| Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean score 0.415 |
-| COCO-20i | 0 | 5 | 50 | SANSA all-support baseline | 59.83 | 79.73 | - |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.03 | 58.47 | 80.55 | fallback 0/50, mean score 0.540 |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.10 | 60.43 | 81.37 | fallback 12/50, mean margin 0.249 |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.20 | 60.89 | 81.90 | fallback 29/50, mean margin 0.249 |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, min score 0.60 | 57.79 | 78.97 | fallback 16/50 |
-| COCO-20i | 0 | 5 | 50 | UQ-weighted logits, margin 0.10 + min score 0.60 | 59.85 | 79.91 | fallback 25/50 |
-
-Read:
-
-- Pascal-Part smoke is positive: `+1.59` mIoU and `+4.39` FB-IoU.
-- COCO-20i naked weighted logits is not a main-metric win: `-1.36` mIoU and `+0.82` FB-IoU.
-- With fallback, `margin=0.20` is the best smoke setting: `+1.06` mIoU and `+2.17` FB-IoU over baseline.
-- `min_score=0.60` is not useful as the main rule because it hurts mIoU.
-- Next: compare the 4-fold mean against the SANSA paper / official baseline.
-
-### COCO-20i 5-shot Full, Module B
-
-Setting: COCO-20i fold adapters, `shots=5`, `--support_agg weighted_logits --support_fallback_margin 0.20`, official `inference_fss.py`.
+COCO-20i 5-shot, `support_fallback_margin=0.20`:
 
 | Fold | Episodes | mIoU | FB-IoU | Fallback | Mean score | Mean max score | Mean margin |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -163,75 +107,95 @@ Setting: COCO-20i fold adapters, `shots=5`, `--support_agg weighted_logits --sup
 
 Baseline alignment:
 
-| Method | 5-shot mean mIoU | Delta |
+| Method | COCO-20i 5-shot mean mIoU | Delta vs SANSA |
 | --- | ---: | ---: |
 | SANSA official / paper baseline | 64.30 | - |
 | UQ-weighted logits + fallback margin 0.20 | 63.67 | -0.63 |
 
+Read: this validates the official-path implementation, but it is not a main result. Replace it with adaptive-k, a COCO-specific support reliability head, or a more conservative reliability gate.
+
+### A+B
+
+No finalized result yet. Combine only after Module B is stable enough not to underperform the SANSA baseline.
+
+## Generalist In-context
+
+### Baseline
+
+Setting: `adapter_generalist.pth`, `channel_factor=0.8`.
+
+The following rows are 1-shot mIoU, reported as `fold0 / fold1 / fold2 / fold3 / mean`.
+
+| Dataset | Shot | Weight | F0 | F1 | F2 | F3 | Mean |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Pascal-Part | 1-shot | `adapter_generalist.pth` | 36.29 | 65.16 | 38.20 | 56.77 | 49.105 |
+| PACO-Part | 1-shot | `adapter_generalist.pth` | 40.27 | 44.20 | 46.09 | 41.24 | 42.95 |
+
+These rows are mIoU only; they do not include FB-IoU.
+
+### Module A
+
+Module A includes pure hflip, UQ-gated hflip, and BRM. BRM is a trainable boundary-aware mask refinement branch, not TTA.
+
+Pascal-Part 1-shot, UQ-gated hflip, `uq_gate_threshold=0.3`:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 1017 | 37.49 | 65.24 |
+| 1 | 959 | 112 | 65.27 | 72.39 |
+| 2 | 2500 | 908 | 38.49 | 65.63 |
+| 3 | 2500 | 378 | 56.65 | 76.06 |
+| mean | - | - | 49.48 | 69.83 |
+
+Pascal-Part 1-shot, BRM always + UQ-gated hflip, `uq_gate_threshold=0.3`:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 1017 | 37.29 | 64.70 |
+| 1 | 959 | 112 | 66.00 | 72.83 |
+| 2 | 2500 | 908 | 38.64 | 65.53 |
+| 3 | 2500 | 378 | 56.83 | 76.09 |
+| mean | - | - | 49.69 | 69.79 |
+
+PACO-Part 1-shot, BRM always + UQ-gated hflip, `uq_gate_threshold=0.3`:
+
+| Fold | Episodes | Triggered | mIoU | FB-IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2500 | 991 | 41.59 | 67.84 |
+| 1 | 2500 | 856 | 45.49 | 66.83 |
+| 2 | 2500 | 767 | 46.42 | 66.20 |
+| 3 | 2500 | 846 | 41.36 | 64.47 |
+| mean | - | - | 43.72 | 66.34 |
+
 Read:
 
-- Full COCO 5-shot 4-fold evaluation is complete; mean is `63.67 / 79.91`.
-- Fallback rate is `1964/4000 = 49.1%`, so the method acts as a conservative controller rather than always replacing all-support SANSA.
-- Against the SANSA official 5-shot baseline (`64.3` mIoU), this is negative by `-0.63` mIoU.
-- Current read: the official-path implementation is useful, but weighted-logits fallback is not strong enough to be the main Module B result.
+- Pascal-Part BRM+UQ vs UQ-only: `+0.21` mIoU, `-0.04` FB-IoU.
+- Pascal-Part BRM+UQ is essentially tied with prior BRM + unconditional hflip (`49.61 / 69.82`) while running hflip on only `28.6%` of episodes.
+- PACO-Part BRM+UQ is essentially tied with prior BRM + unconditional hflip (`43.65 / 66.44`) while running hflip on `34.6%` of episodes.
+- The safe claim is uncertainty-controlled refinement efficiency with comparable or slightly better mIoU, not a large accuracy gain.
 
-## Diagnostic Summary
+### Module B
 
-Keep these as motivation only:
+Pascal-Part 5-shot smoke:
 
-| Area | Current read |
-| --- | --- |
-| FSS-1000 | near ceiling; useful sanity check, weak main evidence |
-| Pascal-Part support selection | token head beats random/SAM-score and roughly ties all-supports |
-| PACO-Part support selection | mixed/tokens-match heads improve diagnostics but top1 gains are not robust |
-| Memory propagation | official SANSA does not use query-to-query propagation; branch is paused |
+| Dataset | Fold | Shots | Episodes | Method | mIoU | FB-IoU | Extra |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | --- |
+| Pascal-Part | 0 | 5 | 50 | SANSA all-support baseline | 45.84 | 66.22 | local smoke |
+| Pascal-Part | 0 | 5 | 50 | UQ-weighted logits | 47.43 | 70.61 | fallback 0/50, mean score 0.415 |
 
-## Current Priorities
+Read: positive smoke result (`+1.59` mIoU, `+4.39` FB-IoU), but it needs full 4-fold matched evaluation before becoming an auxiliary result.
 
-1. Replace the current Module B candidate.
-   - Do not use `weighted_logits + margin 0.20` as the main result; it is below SANSA 5-shot mIoU.
-   - Try adaptive-k + fallback or a COCO-specific support reliability head.
-   - Keep the completed weighted-logits run as an ablation / implementation proof.
+### A+B
 
-2. Build the strict FSS main table.
-   - Every strict FSS row must include SANSA official baseline and delta.
-   - Add 1-shot / Module A or A+B if time allows.
-   - Add FSS-1000 sanity check.
+No finalized result yet. Do not mix A+B into the story until Module B has a reliable full result.
 
-3. Combine A+B only after Module B is stable.
-   - Current `--support_agg` and `--uq_hflip_tta` are intentionally not combined yet.
+## Priorities
 
-4. Stop expanding Module A generalist runs.
-   - Pascal-Part/PACO-Part already support the auxiliary Module A story.
-
-## Canonical Commands
-
-COCO-20i fold0 5-shot baseline smoke:
-
-```bash
-python inference_fss.py \
-  --dataset_file coco --prompt mask --shots 5 --fold 0 \
-  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.3 \
-  --device cuda --data_root /data6/chensq/datasets \
-  --resume pretrain/coco-20i-4/adapter_coco_fold0.pth \
-  --name_exp eval_coco_f0_5shot_baseline_smoke \
-  --max_eval_episodes 50
-```
-
-COCO-20i fold0 5-shot Module B smoke with stricter fallback:
-
-```bash
-python inference_fss.py \
-  --dataset_file coco --prompt mask --shots 5 --fold 0 \
-  --sam2_version large --adaptformer_stages 2 3 --channel_factor 0.3 \
-  --device cuda --data_root /data6/chensq/datasets \
-  --resume pretrain/coco-20i-4/adapter_coco_fold0.pth \
-  --name_exp eval_coco_f0_5shot_uq_weighted_logits_margin020_smoke \
-  --support_agg weighted_logits \
-  --support_uq_head_ckpt output/uncertainty_head_mixed_tokens_match_fss_pascal_paco/uncertainty_head.pt \
-  --support_fallback_margin 0.20 \
-  --max_eval_episodes 50
-```
+1. Strict FSS: replace the current Module B candidate; it is below SANSA COCO-20i 5-shot mIoU.
+2. Strict FSS: every row must include SANSA official baseline and delta.
+3. Generalist In-context: Module A is mostly closed; only expand if needed for the paper story.
+4. Generalist In-context: if continuing Module B, run matched full 4-fold 5-shot baseline and Module B.
+5. A+B: combine only after Module B is stable.
 
 ## Guardrails
 
