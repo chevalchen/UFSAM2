@@ -33,6 +33,7 @@ Inside each setting, organize rows as:
 - **Baseline**
 - **Module A**: uncertainty-guided ambiguity refinement.
 - **Module B**: uncertainty-guided support reliability and aggregation.
+- **Module C**: uncertainty-triggered query self-prompting.
 - **A+B**: final combination.
 
 Parameter variants stay under the relevant module, e.g. `uq_gate_threshold=0.3` under Module A and `support_fallback_margin=0.20` under Module B.
@@ -67,6 +68,7 @@ Official `inference_fss.py` supports:
 | UQ-gated hflip | `--uq_hflip_tta --uq_head_ckpt ... --uq_gate_threshold ...` | runs hflip only for low expected-IoU episodes |
 | BRM | `--boundary_refine` | requires a checkpoint with `brm.*` weights |
 | Module B weighted logits | `--support_agg weighted_logits --support_uq_head_ckpt ...` | first official-path support aggregation prototype |
+| Module C memory-to-point | `--memory_to_point_prompt --mtp_trigger_threshold ...` | reruns uncertain query masks with automatic point prompts |
 | smoke cap | `--max_eval_episodes` | use only for small-loop validation |
 
 Current limitations:
@@ -113,6 +115,47 @@ Baseline alignment:
 | UQ-weighted logits + fallback margin 0.20 | 63.67 | -0.63 |
 
 Read: this validates the official-path implementation, but it is not a main result. Replace it with adaptive-k, a COCO-specific support reliability head, or a more conservative reliability gate.
+
+### Module C
+
+Current official-path prototype: uncertainty-triggered Memory-to-Point Self-Prompting (`--memory_to_point_prompt`).
+
+Mechanism:
+
+- run normal memory-conditioned SANSA query decoding;
+- compute an unsupervised query quality score from logit stability and multimask disagreement;
+- if the score is below `--mtp_trigger_threshold`, sample automatic positive/negative points from the query prediction;
+- rerun the SAM2 head with the same memory-conditioned feature and the generated point prompts;
+- accept the second pass only when its quality score does not regress.
+
+COCO-20i 5-shot, fold-specific adapters:
+
+| Setting | F0 mIoU | F1 mIoU | F2 mIoU | F3 mIoU | Mean mIoU | Mean FB-IoU | Triggered | Accepted |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| MTP `t085` | 64.65 | 67.49 | 65.50 | 60.29 | 64.48 | 80.28 | 34/4000 | 30/34 |
+| MTP `t090` | 64.66 | 67.44 | 65.58 | 60.17 | 64.46 | 80.31 | 79/4000 | 74/79 |
+| MTP `t092` | 64.52 | 67.43 | 65.58 | 60.28 | 64.45 | 80.29 | 121/4000 | 113/121 |
+
+Fold0 threshold stress:
+
+| Setting | Fold0 mIoU | Fold0 FB-IoU | Triggered | Accepted |
+| --- | ---: | ---: | ---: | ---: |
+| MTP `t095` | 64.26 | 79.25 | 68/1000 | 52/68 |
+
+Baseline alignment:
+
+| Method | COCO-20i 5-shot mean mIoU | Delta vs SANSA |
+| --- | ---: | ---: |
+| SANSA official / paper baseline | 64.30 | - |
+| MTP `t085` | 64.48 | +0.18 |
+| MTP `t090` | 64.46 | +0.16 |
+| MTP `t092` | 64.45 | +0.15 |
+
+Read:
+
+- MTP is a low-trigger precision intervention: `t085` triggers only `34/4000 = 0.85%` episodes and gives the best mean mIoU.
+- More aggressive triggering does not help; fold0 `t095` drops below the official 5-shot baseline.
+- Current best strict-FSS candidate is MTP `t085`, but the gain is small. A local no-MTP 4-fold baseline and ablations such as `--mtp_num_negative_points 0` are still needed before making a strong claim.
 
 ### A+B
 

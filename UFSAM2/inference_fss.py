@@ -43,6 +43,13 @@ def main(args: argparse.Namespace) -> float:
         args.device,
         hflip_tta=args.hflip_tta,
         boundary_refine=args.boundary_refine,
+        memory_to_point_prompt=args.memory_to_point_prompt,
+        mtp_trigger_threshold=args.mtp_trigger_threshold,
+        mtp_accept_margin=args.mtp_accept_margin,
+        mtp_num_positive_points=args.mtp_num_positive_points,
+        mtp_num_negative_points=args.mtp_num_negative_points,
+        mtp_pos_threshold=args.mtp_pos_threshold,
+        mtp_neg_threshold=args.mtp_neg_threshold,
     )
     device = torch.device(args.device)
     model.to(device)
@@ -211,6 +218,8 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     if args.support_agg != "none":
         support_head_ckpt = args.support_uq_head_ckpt or args.uq_head_ckpt
         support_uq_state = load_uncertainty_head(support_head_ckpt, torch.device(args.support_uq_head_device))
+    if args.memory_to_point_prompt and hasattr(model, "reset_memory_to_point_stats"):
+        model.reset_memory_to_point_stats()
 
     max_episodes = len(dataloader) if args.max_eval_episodes is None else min(args.max_eval_episodes, len(dataloader))
     pbar = tqdm(dataloader, total=max_episodes, ncols=80, desc='runn avg.', disable=(utils.get_rank() != 0), file=sys.stderr, dynamic_ncols=True)
@@ -296,6 +305,9 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         mean_margin = support_margin_sum / max(max_episodes, 1)
         mean_max_score = support_max_score_sum / max(max_episodes, 1)
         print(f'Support aggregation: {args.support_agg}; fallback on {support_fallback_count}/{max_episodes} episodes; mean support score {mean_score:.3f}; mean max score {mean_max_score:.3f}; mean score margin {mean_margin:.3f}')
+    if args.memory_to_point_prompt and hasattr(model, "memory_to_point_stats"):
+        stats = model.memory_to_point_stats
+        print(f"Memory-to-point self-prompting: triggered {stats['triggered']} times; accepted {stats['accepted']} times")
     print('==================== Finished Testing ====================')
 
     return miou

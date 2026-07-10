@@ -406,6 +406,8 @@ class SAM2Base(torch.nn.Module):
         out = DecoderOutput(
             low_res_masks=low_res_masks,
             high_res_masks=high_res_masks,
+            low_res_multimasks=low_res_multimasks,
+            high_res_multimasks=high_res_multimasks,
             obj_ptr=obj_ptr,
             pix_feat_with_mem=backbone_features,
             ious=ious,
@@ -467,6 +469,7 @@ class SAM2Base(torch.nn.Module):
         out.obj_ptr = obj_ptr
         out.object_score_logits = object_score_logits
         out.low_res_masks = low_res_masks
+        out.low_res_multimasks = low_res_masks
         out.ious = ious
         out.pix_feat_with_mem = backbone_features
         # out.high_res_masks = high_res_masks
@@ -476,6 +479,7 @@ class SAM2Base(torch.nn.Module):
                 mode="bilinear",
                 align_corners=False,
             )
+        out.high_res_multimasks = out.high_res_masks
         return out
 
     def forward_image(self, img_batch: torch.Tensor):

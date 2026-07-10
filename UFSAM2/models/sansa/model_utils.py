@@ -42,6 +42,8 @@ class DecoderOutput:
     """
     low_res_masks: Optional[Tensor] = None
     high_res_masks: Optional[Tensor] = None
+    low_res_multimasks: Optional[Tensor] = None
+    high_res_multimasks: Optional[Tensor] = None
     obj_ptr: Optional[Tensor] = None
     pix_feat_with_mem: Optional[Tensor] = None
     ious: Optional[Tensor] = None
@@ -60,6 +62,8 @@ class DecoderOutput:
         for field in (
             "low_res_masks",
             "high_res_masks",
+            "low_res_multimasks",
+            "high_res_multimasks",
             "obj_ptr",
             "object_score_logits",
             "hyper_in",

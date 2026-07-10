@@ -22,6 +22,7 @@
 - **Baseline**：SANSA 原始设置或 paper/README 可直接引用的 official 数字。
 - **Module A**：Uncertainty-Guided Ambiguity Refinement，包括 hflip、UQ-gated hflip、BRM。
 - **Module B**：Uncertainty-Guided Support Reliability and Aggregation，包括 weighted logits、adaptive-k、fallback。
+- **Module C**：Uncertainty-Triggered Query Self-Prompting，包括 memory-to-point automatic prompts。
 - **A+B**：Module A 和 Module B 的最终组合。
 
 参数变体必须挂在对应模块下面，例如 `uq_gate_threshold=0.3` 属于 Module A，`support_fallback_margin=0.20` 属于 Module B。
@@ -92,7 +93,50 @@ Baseline alignment:
 - 它低于 SANSA 5-shot official baseline `64.3`，只能作为 ablation / implementation proof。
 - 下一步应优先换成更强的 adaptive-k、COCO-specific reliability head，或更保守的 gating 策略。
 
-### 2.4 A+B
+### 2.4 Module C
+
+当前 official-path prototype：Memory-to-Point Self-Prompting，开关为 `--memory_to_point_prompt`。
+
+机制：
+
+- 先运行正常的 memory-conditioned SANSA query decode；
+- 用 logit stability 和 multimask disagreement 构造无监督 query quality score；
+- 当 score 低于 `--mtp_trigger_threshold` 时，从 query mask 内部采样自动正点，从候选分歧/背景区域采样自动负点；
+- 用同一个 memory-conditioned feature 加自动 point prompt 再跑一次 SAM2 head；
+- 只有 second pass 的 quality score 不退化时才接受。
+
+#### COCO-20i 5-shot full, Memory-to-Point
+
+设置：fold-specific COCO adapters，`--memory_to_point_prompt`，默认 `1` 个正点 + `1` 个负点。
+
+| Setting | F0 mIoU | F1 mIoU | F2 mIoU | F3 mIoU | Mean mIoU | Mean FB-IoU | Triggered | Accepted |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| MTP `t085` | 64.65 | 67.49 | 65.50 | 60.29 | 64.48 | 80.28 | 34/4000 | 30/34 |
+| MTP `t090` | 64.66 | 67.44 | 65.58 | 60.17 | 64.46 | 80.31 | 79/4000 | 74/79 |
+| MTP `t092` | 64.52 | 67.43 | 65.58 | 60.28 | 64.45 | 80.29 | 121/4000 | 113/121 |
+
+Fold0 额外阈值压力测试：
+
+| Setting | Fold0 mIoU | Fold0 FB-IoU | Triggered | Accepted |
+| --- | ---: | ---: | ---: | ---: |
+| MTP `t095` | 64.26 | 79.25 | 68/1000 | 52/68 |
+
+Baseline alignment:
+
+| Method | COCO-20i 5-shot mean mIoU | Delta vs SANSA |
+| --- | ---: | ---: |
+| SANSA official / paper baseline | 64.30 | - |
+| MTP `t085` | 64.48 | +0.18 |
+| MTP `t090` | 64.46 | +0.16 |
+| MTP `t092` | 64.45 | +0.15 |
+
+当前判断：
+
+- MTP 是低触发率的精准干预：`t085` 只触发 `34/4000 = 0.85%` episodes，但 mean mIoU 最高。
+- 阈值越激进不一定越好；fold0 的 `t095` 触发过多，mIoU 掉到 `64.26`。
+- 当前 strict-FSS 主线候选应优先放 MTP `t085`，但增益只有 `+0.18`，还需要本地 no-MTP 4-fold baseline 和 `--mtp_num_negative_points 0` 等 ablation 来稳住结论。
+
+### 2.5 A+B
 
 尚未形成正式组合结果。
 
