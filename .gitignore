@@ -21,3 +21,5 @@ SANSA.pdf
 uncertainSAM.pdf
 SANSA
 uncertainSAM
+!UFSAM2/models/sansa/
+!UFSAM2/models/sansa/post_memory_calibration.py

@@ -66,5 +66,15 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--support_weight_temp", type=float, default=0.0, help="Softmax temperature for support scores; <=0 uses linear score normalization.")
     parser.add_argument("--support_fallback_margin", type=float, default=0.03, help="Fallback to all-support SANSA when support scores are nearly tied.")
     parser.add_argument("--support_fallback_min_score", type=float, default=0.0, help="Fallback to all-support SANSA when every support score is below this value.")
+    parser.add_argument("--post_memory_calibration", action="store_true", default=False, help="Enable AV-PMC post-memory feature calibration on query frames.")
+    parser.add_argument("--pmc_mode", type=str, default="gated", choices=["operator", "spatial", "gated"], help="AV-PMC path: all-feature operator, spatial gate, or spatial plus episode action-value gate.")
+    parser.add_argument("--pmc_checkpoint", type=str, default="", help="Checkpoint containing PostMemoryFeatureCalibrator weights.")
+    parser.add_argument("--pmc_projection_dim", type=int, default=64, help="Projected width for pre/post-memory disagreement features.")
+    parser.add_argument("--pmc_hidden_dim", type=int, default=128, help="Hidden width of the AV-PMC dense evidence trunk.")
+    parser.add_argument("--pmc_residual_scale", type=float, default=0.1, help="Maximum magnitude scale of the bounded feature residual.")
+    parser.add_argument("--pmc_spatial_threshold", type=float, default=0.0, help="Signed dense-benefit threshold used by the spatial gate.")
+    parser.add_argument("--pmc_episode_threshold", type=float, default=0.0, help="Predicted delta-IoU threshold for running the second decoder pass.")
+    parser.add_argument("--pmc_gate_temperature", type=float, default=0.25, help="Temperature of the soft spatial benefit gate.")
+    parser.add_argument("--pmc_train_stage", type=str, default=None, choices=["operator", "spatial", "gain"], help="Train exactly one AV-PMC stage while freezing SANSA; used by the dedicated training script.")
 
     return parser

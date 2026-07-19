@@ -248,3 +248,27 @@ No finalized result yet. Do not mix A+B into the story until Module B has a reli
 - Do not use Pascal-Part/PACO-Part generalist as the strict FSS main claim.
 - Do not commit checkpoints, caches, output folders, or datasets.
 - Update `PROCESS.md` or `EXPERIMENT.md` after each stage-level conclusion and commit the docs.
+
+## AV-PMC Post-Memory Calibration (implemented, no result yet)
+
+The code now contains a default-off, selective post-memory feature repair. It must be trained in three ordered stages while SANSA/adapters remain frozen:
+
+1. `operator`: always-on zero-initialized feature residual;
+2. `spatial`: signed dense repair-benefit prediction using the frozen operator;
+3. `gain`: signed episode delta-IoU prediction using the frozen operator and spatial gate.
+
+Example sequence (replace paths and dataset/fold arguments with the locked protocol):
+
+```powershell
+python train_post_memory_calibration.py --resume <sansa.pth> --pmc_train_stage operator --batch_size 1 --name_exp pmc_operator
+python train_post_memory_calibration.py --resume <sansa.pth> --pmc_checkpoint <pmc_operator.pth> --pmc_train_stage spatial --batch_size 1 --name_exp pmc_spatial
+python train_post_memory_calibration.py --resume <sansa.pth> --pmc_checkpoint <pmc_spatial.pth> --pmc_train_stage gain --batch_size 1 --name_exp pmc_gain
+```
+
+Standalone evaluation:
+
+```powershell
+python inference_fss.py --resume <sansa.pth> --post_memory_calibration --pmc_checkpoint <pmc_gain.pth> --pmc_mode gated --dataset_file coco --shots 5 --fold 0 --name_exp pmc_eval
+```
+
+For attribution, evaluate `pmc_mode=operator`, `pmc_mode=spatial`, and `pmc_mode=gated` on identical episodes. Do not combine AV-PMC with hflip, BRM, MTP, or support aggregation until the standalone result is positive. The implementation status does not imply experimental effectiveness.

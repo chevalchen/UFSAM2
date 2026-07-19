@@ -13,6 +13,7 @@ from models.sam2.modeling.sam2_utils import preprocess
 from models.sam2.modeling.sam2_base import SAM2Base 
 from models.sansa.model_utils import BackboneOutput, DecoderOutput
 from models.sansa.boundary_refine import BoundaryRefinementModule
+from models.sansa.post_memory_calibration import PostMemoryFeatureCalibrator
 from util.path_utils import SAM2_PATHS_CONFIG, SAM2_WEIGHTS_URL
 from util.promptable_utils import rescale_prompt
 
@@ -31,6 +32,14 @@ class SANSA(nn.Module):
         mtp_num_negative_points: int = 1,
         mtp_pos_threshold: float = 0.65,
         mtp_neg_threshold: float = 0.35,
+        post_memory_calibration: bool = False,
+        pmc_mode: str = "gated",
+        pmc_projection_dim: int = 64,
+        pmc_hidden_dim: int = 128,
+        pmc_residual_scale: float = 0.1,
+        pmc_spatial_threshold: float = 0.0,
+        pmc_episode_threshold: float = 0.0,
+        pmc_gate_temperature: float = 0.25,
     ):
         super().__init__()
         self.sam = sam
@@ -44,16 +53,45 @@ class SANSA(nn.Module):
         self.mtp_num_negative_points = mtp_num_negative_points
         self.mtp_pos_threshold = mtp_pos_threshold
         self.mtp_neg_threshold = mtp_neg_threshold
+        self.post_memory_calibrator = (
+            PostMemoryFeatureCalibrator(
+                feature_dim=getattr(sam, "hidden_dim", 256),
+                projection_dim=pmc_projection_dim,
+                hidden_dim=pmc_hidden_dim,
+                residual_scale=pmc_residual_scale,
+                mode=pmc_mode,
+                spatial_threshold=pmc_spatial_threshold,
+                episode_threshold=pmc_episode_threshold,
+                gate_temperature=pmc_gate_temperature,
+            )
+            if post_memory_calibration
+            else None
+        )
         self.reset_memory_to_point_stats()
+        self.reset_post_memory_calibration_stats()
 
     def reset_memory_to_point_stats(self) -> None:
         self.memory_to_point_stats = {"triggered": 0, "accepted": 0}
+
+    def reset_post_memory_calibration_stats(self) -> None:
+        self.post_memory_calibration_stats = {
+            "eligible": 0,
+            "triggered": 0,
+            "spatial_area_sum": 0.0,
+            "predicted_gain_sum": 0.0,
+        }
+
+    def set_post_memory_calibration_train_stage(self, stage: str | None) -> None:
+        if self.post_memory_calibrator is None:
+            raise RuntimeError("Post-memory calibration is not enabled.")
+        self.post_memory_calibrator.set_train_stage(stage)
 
     def forward(
         self,
         samples: torch.Tensor,
         prompt_dict: List[Dict[str, Any]],
         return_traces: bool = False,
+        return_calibration_data: bool = False,
     ) -> Dict[str, Any]:
         """
         Run SANSA.
@@ -75,6 +113,7 @@ class SANSA(nn.Module):
         outputs = {"masks": []}
         traces = []
         support_traces = []
+        calibration_records = []
 
         n_shots = prompt_dict['shots']
         for b in range(B):
@@ -101,6 +140,15 @@ class SANSA(nn.Module):
                     decoder_out = self._apply_boundary_refine(decoder_out)
                     if return_traces:
                         traces.append(self._build_uncertainty_trace(decoder_out, b, idx, absolute_idx))
+                    if return_calibration_data and self.post_memory_calibrator is not None:
+                        calibration_records.append(
+                            self._build_post_memory_calibration_record(
+                                decoder_out,
+                                b,
+                                idx,
+                                absolute_idx,
+                            )
+                        )
 
                 # update memory bank
                 mem_entry = self._compute_memory_bank_dict(decoder_out, backbone_output, absolute_idx)
@@ -113,6 +161,8 @@ class SANSA(nn.Module):
         if return_traces:
             result["traces"] = traces
             result["support_traces"] = support_traces
+        if return_calibration_data:
+            result["post_memory_calibration"] = calibration_records
         return result
 
     def _preprocess_visual_features(
@@ -247,13 +297,73 @@ class SANSA(nn.Module):
         )
         decoder_out.memory_summary = pix_feat_with_mem.mean(dim=(-2, -1))
         decoder_out._brm_feat = high_res_features[0]
+        if self.post_memory_calibrator is not None:
+            query_feature = backbone_out.get_current_feats_x16(idx)
+            decoder_out = self._apply_post_memory_calibration(
+                decoder_out,
+                query_feature,
+                pix_feat_with_mem,
+                high_res_features,
+                multimask_output=True if memory_idx > 0 else False,
+            )
         if self.memory_to_point_prompt:
+            mtp_feature = (
+                decoder_out.pix_feat_with_mem
+                if self.post_memory_calibrator is not None and decoder_out.pix_feat_with_mem is not None
+                else pix_feat_with_mem
+            )
             decoder_out = self._apply_memory_to_point_prompt(
                 decoder_out,
-                pix_feat_with_mem,
+                mtp_feature,
                 high_res_features,
             )
         return decoder_out
+
+    def _apply_post_memory_calibration(
+        self,
+        baseline_out: DecoderOutput,
+        query_feature: torch.Tensor,
+        pix_feat_with_mem: torch.Tensor,
+        high_res_features: List[torch.Tensor],
+        multimask_output: bool,
+    ) -> DecoderOutput:
+        calibrator = self.post_memory_calibrator
+        if calibrator is None:
+            return baseline_out
+
+        precal_memory_summary = pix_feat_with_mem.mean(dim=(-2, -1))
+        calibration = calibrator(query_feature, pix_feat_with_mem, baseline_out)
+        target_out = baseline_out
+        if calibration.applied:
+            target_out = self.sam._forward_sam_heads(
+                backbone_features=calibration.calibrated_feature,
+                high_res_features=high_res_features,
+                multimask_output=multimask_output,
+            )
+
+        target_out.memory_summary = calibration.calibrated_feature.mean(dim=(-2, -1))
+        target_out._brm_feat = high_res_features[0]
+        target_out.pmc_baseline_low_res_masks = baseline_out.low_res_masks
+        target_out.pmc_baseline_ious = baseline_out.ious
+        target_out.pmc_query_summary = query_feature.mean(dim=(-2, -1))
+        target_out.pmc_precal_memory_summary = precal_memory_summary
+        target_out.pmc_predicted_delta_iou = calibration.predicted_delta_iou
+        target_out.pmc_episode_gate = calibration.episode_gate
+        target_out.pmc_spatial_benefit = calibration.spatial_benefit
+        target_out.pmc_spatial_gate = calibration.spatial_gate
+        target_out.pmc_residual_norm = calibration.residual.square().mean(
+            dim=(1, 2, 3), keepdim=True
+        ).sqrt()
+        target_out.pmc_applied = calibration.applied
+
+        stats = self.post_memory_calibration_stats
+        stats["eligible"] += int(calibration.episode_gate.numel())
+        stats["triggered"] += int(calibration.episode_gate.detach().sum().item())
+        stats["spatial_area_sum"] += float(calibration.spatial_gate.detach().mean().item())
+        stats["predicted_gain_sum"] += float(
+            calibration.predicted_delta_iou.detach().mean().item()
+        )
+        return target_out
 
     def _apply_memory_to_point_prompt(
         self,
@@ -434,6 +544,37 @@ class SANSA(nn.Module):
             "memory_to_point_quality_after": self._detach_cpu(getattr(decoder_out, "memory_to_point_quality_after", None)),
             "memory_to_point_coords": self._detach_cpu(getattr(decoder_out, "memory_to_point_coords", None)),
             "memory_to_point_labels": self._detach_cpu(getattr(decoder_out, "memory_to_point_labels", None)),
+            "pmc_applied": decoder_out.pmc_applied,
+            "pmc_predicted_delta_iou": self._detach_cpu(decoder_out.pmc_predicted_delta_iou),
+            "pmc_episode_gate": self._detach_cpu(decoder_out.pmc_episode_gate),
+            "pmc_spatial_benefit": self._detach_cpu(decoder_out.pmc_spatial_benefit),
+            "pmc_spatial_gate": self._detach_cpu(decoder_out.pmc_spatial_gate),
+            "pmc_residual_norm": self._detach_cpu(decoder_out.pmc_residual_norm),
+            "pmc_query_summary": self._detach_cpu(decoder_out.pmc_query_summary),
+            "pmc_precal_memory_summary": self._detach_cpu(decoder_out.pmc_precal_memory_summary),
+        }
+
+    @staticmethod
+    def _build_post_memory_calibration_record(
+        decoder_out: DecoderOutput,
+        batch_idx: int,
+        frame_idx: int,
+        absolute_idx: int,
+    ) -> Dict[str, Any]:
+        return {
+            "batch_idx": batch_idx,
+            "frame_idx": frame_idx,
+            "absolute_idx": absolute_idx,
+            "baseline_low_res_masks": decoder_out.pmc_baseline_low_res_masks,
+            "calibrated_low_res_masks": decoder_out.low_res_masks,
+            "baseline_ious": decoder_out.pmc_baseline_ious,
+            "calibrated_ious": decoder_out.ious,
+            "predicted_delta_iou": decoder_out.pmc_predicted_delta_iou,
+            "episode_gate": decoder_out.pmc_episode_gate,
+            "spatial_benefit": decoder_out.pmc_spatial_benefit,
+            "spatial_gate": decoder_out.pmc_spatial_gate,
+            "residual_norm": decoder_out.pmc_residual_norm,
+            "applied": decoder_out.pmc_applied,
         }
 
     def _build_support_trace(
@@ -535,6 +676,15 @@ def build_sansa(
     mtp_num_negative_points: int = 1,
     mtp_pos_threshold: float = 0.65,
     mtp_neg_threshold: float = 0.35,
+    post_memory_calibration: bool = False,
+    pmc_mode: str = "gated",
+    pmc_projection_dim: int = 64,
+    pmc_hidden_dim: int = 128,
+    pmc_residual_scale: float = 0.1,
+    pmc_spatial_threshold: float = 0.0,
+    pmc_episode_threshold: float = 0.0,
+    pmc_gate_temperature: float = 0.25,
+    pmc_train_stage: str | None = None,
 ) -> SANSA:
     assert sam2_version in SAM2_PATHS_CONFIG.keys(), f'wrong argument sam2_version: {sam2_version}'
     
@@ -569,10 +719,23 @@ def build_sansa(
         mtp_num_negative_points=mtp_num_negative_points,
         mtp_pos_threshold=mtp_pos_threshold,
         mtp_neg_threshold=mtp_neg_threshold,
+        post_memory_calibration=post_memory_calibration,
+        pmc_mode=pmc_mode,
+        pmc_projection_dim=pmc_projection_dim,
+        pmc_hidden_dim=pmc_hidden_dim,
+        pmc_residual_scale=pmc_residual_scale,
+        pmc_spatial_threshold=pmc_spatial_threshold,
+        pmc_episode_threshold=pmc_episode_threshold,
+        pmc_gate_temperature=pmc_gate_temperature,
     )
 
-    # freeze everything except adapters and optional BRM
+    # The calibration funnel freezes SANSA/adapters and trains one PMC stage at a time.
     for name, p in model.named_parameters():
         p.requires_grad = ("adapter" in name or "brm" in name)
+    if model.post_memory_calibrator is not None:
+        if pmc_train_stage is not None:
+            for p in model.parameters():
+                p.requires_grad = False
+        model.set_post_memory_calibration_train_stage(pmc_train_stage)
 
     return model

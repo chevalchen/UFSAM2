@@ -10,6 +10,7 @@ from tqdm import tqdm
 
 import opts
 from models.sansa.sansa import build_sansa
+from models.sansa.post_memory_calibration import load_post_memory_calibrator_checkpoint
 from datasets import build_dataset
 from train_uncertainty_head import IoUHead, make_feature
 from util.commons import make_deterministic, setup_logging, resume_from_checkpoint
@@ -35,6 +36,22 @@ def main(args: argparse.Namespace) -> float:
         support_head_ckpt = args.support_uq_head_ckpt or args.uq_head_ckpt
         if not support_head_ckpt:
             raise ValueError("--support_agg requires --support_uq_head_ckpt or --uq_head_ckpt.")
+    if args.post_memory_calibration:
+        incompatible = []
+        if args.hflip_tta or args.uq_hflip_tta:
+            incompatible.append("hflip TTA")
+        if args.boundary_refine:
+            incompatible.append("boundary refinement")
+        if args.memory_to_point_prompt:
+            incompatible.append("memory-to-point prompting")
+        if args.support_agg != "none":
+            incompatible.append("support aggregation")
+        if incompatible:
+            raise ValueError(
+                "Evaluate AV-PMC standalone before combinations; disable " + ", ".join(incompatible) + "."
+            )
+        if not args.pmc_checkpoint and not args.resume:
+            raise ValueError("--post_memory_calibration requires --pmc_checkpoint or a full --resume checkpoint.")
 
     model = build_sansa(
         args.sam2_version,
@@ -50,6 +67,14 @@ def main(args: argparse.Namespace) -> float:
         mtp_num_negative_points=args.mtp_num_negative_points,
         mtp_pos_threshold=args.mtp_pos_threshold,
         mtp_neg_threshold=args.mtp_neg_threshold,
+        post_memory_calibration=args.post_memory_calibration,
+        pmc_mode=args.pmc_mode,
+        pmc_projection_dim=args.pmc_projection_dim,
+        pmc_hidden_dim=args.pmc_hidden_dim,
+        pmc_residual_scale=args.pmc_residual_scale,
+        pmc_spatial_threshold=args.pmc_spatial_threshold,
+        pmc_episode_threshold=args.pmc_episode_threshold,
+        pmc_gate_temperature=args.pmc_gate_temperature,
     )
     device = torch.device(args.device)
     model.to(device)
@@ -57,13 +82,42 @@ def main(args: argparse.Namespace) -> float:
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     if args.resume:
-        resume_from_checkpoint(args.resume, model)
+        if args.post_memory_calibration:
+            load_sansa_checkpoint_for_pmc(model, args.resume)
+        else:
+            resume_from_checkpoint(args.resume, model)
+    if args.pmc_checkpoint:
+        load_post_memory_calibrator(model, args.pmc_checkpoint)
 
     print(f"number of params: {n_parameters}")
     print('Start inference')
 
     mIoU = eval_fss(model, args)
     return mIoU
+
+
+def load_post_memory_calibrator(model: nn.Module, checkpoint_path: str) -> None:
+    calibrator = getattr(model, "post_memory_calibrator", None)
+    if calibrator is None:
+        raise RuntimeError("A PMC checkpoint was provided, but AV-PMC is not enabled.")
+    load_post_memory_calibrator_checkpoint(calibrator, checkpoint_path, strict=True)
+    print(f"Loaded AV-PMC checkpoint: {checkpoint_path}")
+
+
+def load_sansa_checkpoint_for_pmc(model: nn.Module, checkpoint_path: str) -> None:
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    state = checkpoint.get("model", checkpoint.get("state_dict", checkpoint))
+    if not isinstance(state, dict):
+        raise ValueError(f"Unsupported SANSA checkpoint format: {checkpoint_path}")
+    if state and all(key.startswith("module.") for key in state):
+        state = {key[len("module."):]: value for key, value in state.items()}
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    missing = [key for key in missing if not key.startswith("post_memory_calibrator.")]
+    if missing or unexpected:
+        raise RuntimeError(
+            f"SANSA checkpoint mismatch. Missing non-PMC keys: {missing}; unexpected keys: {unexpected}"
+        )
+    print(f"Loaded SANSA checkpoint for AV-PMC: {checkpoint_path}")
 
 
 def _squeeze_trace_tensor(trace: dict[str, Any], key: str) -> torch.Tensor | None:
@@ -220,6 +274,8 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         support_uq_state = load_uncertainty_head(support_head_ckpt, torch.device(args.support_uq_head_device))
     if args.memory_to_point_prompt and hasattr(model, "reset_memory_to_point_stats"):
         model.reset_memory_to_point_stats()
+    if args.post_memory_calibration and hasattr(model, "reset_post_memory_calibration_stats"):
+        model.reset_post_memory_calibration_stats()
 
     max_episodes = len(dataloader) if args.max_eval_episodes is None else min(args.max_eval_episodes, len(dataloader))
     pbar = tqdm(dataloader, total=max_episodes, ncols=80, desc='runn avg.', disable=(utils.get_rank() != 0), file=sys.stderr, dynamic_ncols=True)
@@ -308,6 +364,15 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     if args.memory_to_point_prompt and hasattr(model, "memory_to_point_stats"):
         stats = model.memory_to_point_stats
         print(f"Memory-to-point self-prompting: triggered {stats['triggered']} times; accepted {stats['accepted']} times")
+    if args.post_memory_calibration and hasattr(model, "post_memory_calibration_stats"):
+        stats = model.post_memory_calibration_stats
+        eligible = max(stats["eligible"], 1)
+        print(
+            "AV-PMC: "
+            f"mode={args.pmc_mode}; triggered {stats['triggered']}/{stats['eligible']}; "
+            f"mean spatial gate={stats['spatial_area_sum'] / eligible:.3f}; "
+            f"mean predicted delta-IoU={stats['predicted_gain_sum'] / eligible:.4f}"
+        )
     print('==================== Finished Testing ====================')
 
     return miou

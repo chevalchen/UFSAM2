@@ -53,6 +53,16 @@ class DecoderOutput:
     memory_summary: Optional[Tensor] = None
     object_score_logits: Optional[Tensor] = None
     masks: Optional[Tensor] = None
+    pmc_baseline_low_res_masks: Optional[Tensor] = None
+    pmc_baseline_ious: Optional[Tensor] = None
+    pmc_query_summary: Optional[Tensor] = None
+    pmc_precal_memory_summary: Optional[Tensor] = None
+    pmc_predicted_delta_iou: Optional[Tensor] = None
+    pmc_episode_gate: Optional[Tensor] = None
+    pmc_spatial_benefit: Optional[Tensor] = None
+    pmc_spatial_gate: Optional[Tensor] = None
+    pmc_residual_norm: Optional[Tensor] = None
+    pmc_applied: bool = False
 
     def __post_init__(self):
         self.masks = self.low_res_masks
@@ -75,6 +85,15 @@ class DecoderOutput:
             "mask_tokens",
             "selected_mask_token",
             "memory_summary",
+            "pmc_baseline_low_res_masks",
+            "pmc_baseline_ious",
+            "pmc_query_summary",
+            "pmc_precal_memory_summary",
+            "pmc_predicted_delta_iou",
+            "pmc_episode_gate",
+            "pmc_spatial_benefit",
+            "pmc_spatial_gate",
+            "pmc_residual_norm",
         ):
             val = getattr(self, field, None)
             if val is not None:
