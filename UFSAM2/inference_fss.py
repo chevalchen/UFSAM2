@@ -1,4 +1,6 @@
 import argparse
+import json
+import os
 import sys
 from os.path import join
 import torch
@@ -8,6 +10,7 @@ from tqdm import tqdm
 
 import opts
 from models.sansa.sansa import build_sansa
+from models.sansa.post_memory_calibration import load_post_memory_calibrator_checkpoint
 from datasets import build_dataset
 from util.commons import make_deterministic, setup_logging, resume_from_checkpoint
 import util.misc as utils
@@ -20,7 +23,22 @@ def main(args: argparse.Namespace) -> float:
     make_deterministic(args.seed)
     print(args)
 
-    model = build_sansa(args.sam2_version, args.adaptformer_stages, args.channel_factor, args.device)
+    if args.post_memory_calibration and not args.pmc_checkpoint:
+        raise ValueError("--pmc_checkpoint is required when AV-PMC is enabled.")
+    model = build_sansa(
+        args.sam2_version,
+        args.adaptformer_stages,
+        args.channel_factor,
+        args.device,
+        post_memory_calibration=args.post_memory_calibration,
+        pmc_mode=args.pmc_mode,
+        pmc_projection_dim=args.pmc_projection_dim,
+        pmc_hidden_dim=args.pmc_hidden_dim,
+        pmc_residual_scale=args.pmc_residual_scale,
+        pmc_spatial_threshold=args.pmc_spatial_threshold,
+        pmc_episode_threshold=args.pmc_episode_threshold,
+        pmc_gate_temperature=args.pmc_gate_temperature,
+    )
     device = torch.device(args.device)
     model.to(device)
 
@@ -28,6 +46,12 @@ def main(args: argparse.Namespace) -> float:
 
     if args.resume:
         resume_from_checkpoint(args.resume, model)
+    if args.post_memory_calibration:
+        load_post_memory_calibrator_checkpoint(
+            model.post_memory_calibrator,
+            args.pmc_checkpoint,
+            strict=True,
+        )
 
     print(f"number of params: {n_parameters}")
     print('Start inference')
@@ -49,6 +73,17 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     
     model.eval()
     average_meter = AverageMeter(args.dataset_file, ds.class_ids, ds.nclass)
+    baseline_meter = (
+        AverageMeter(args.dataset_file, ds.class_ids, ds.nclass)
+        if args.post_memory_calibration
+        else None
+    )
+    oracle_meter = (
+        AverageMeter(args.dataset_file, ds.class_ids, ds.nclass)
+        if args.post_memory_calibration
+        else None
+    )
+    paired_metrics = []
 
     pbar = tqdm(dataloader, ncols=80, desc='runn avg.', disable=(utils.get_rank() != 0), file=sys.stderr, dynamic_ncols=True)
     for idx, batch in enumerate(pbar):
@@ -62,7 +97,11 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         prompt_dict = build_prompt_dict(support_masks, args.prompt, n_shots=args.shots, train_mode=False, device=model.device)
 
         with torch.no_grad():
-            outputs = model(imgs, prompt_dict)
+            outputs = model(
+                imgs,
+                prompt_dict,
+                return_calibration_data=args.post_memory_calibration,
+            )
 
         pred_masks = outputs["pred_masks"].unsqueeze(0)  # [1, T, h, w]
         pred_masks = F.interpolate(pred_masks, size=(img_h, img_w), mode='bilinear', align_corners=False) 
@@ -70,6 +109,64 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
 
         area_inter, area_union = Evaluator.classify_prediction(pred_masks[-1:].float(), batch, device=imgs.device)
         average_meter.update(area_inter, area_union, batch['class_id'].cuda())
+
+        if args.post_memory_calibration:
+            records = outputs.get("post_memory_calibration", [])
+            if len(records) != 1:
+                raise RuntimeError(
+                    "EXP-001 evaluation requires exactly one query calibration record per episode."
+                )
+            record = records[0]
+            baseline_logits = record["baseline_low_res_masks"]
+            baseline_masks = F.interpolate(
+                baseline_logits,
+                size=(img_h, img_w),
+                mode="bilinear",
+                align_corners=False,
+            )
+            baseline_masks = (baseline_masks.sigmoid() > args.threshold)[:, 0].cpu()
+            baseline_inter, baseline_union = Evaluator.classify_prediction(
+                baseline_masks.float(),
+                batch,
+                device=imgs.device,
+            )
+            baseline_meter.update(
+                baseline_inter,
+                baseline_union,
+                batch["class_id"].cuda(),
+            )
+            baseline_fg_iou = float(
+                (baseline_inter[1].sum() / baseline_union[1].sum().clamp_min(1.0)).item()
+            )
+            treatment_fg_iou = float(
+                (area_inter[1].sum() / area_union[1].sum().clamp_min(1.0)).item()
+            )
+            if treatment_fg_iou > baseline_fg_iou:
+                oracle_inter, oracle_union = area_inter, area_union
+            else:
+                oracle_inter, oracle_union = baseline_inter, baseline_union
+            oracle_meter.update(
+                oracle_inter,
+                oracle_union,
+                batch["class_id"].cuda(),
+            )
+            class_id = batch["class_id"].reshape(-1)[0].item()
+            paired_metrics.append(
+                {
+                    "episode_idx": idx,
+                    "class_id": int(class_id),
+                    "baseline_iou": baseline_fg_iou,
+                    "treatment_iou": treatment_fg_iou,
+                    "delta_iou": treatment_fg_iou - baseline_fg_iou,
+                    "predicted_delta_iou": float(
+                        record["predicted_delta_iou"].detach().mean().item()
+                    ),
+                    "applied": bool(record["applied"]),
+                    "spatial_gate_mean": float(
+                        record["spatial_gate"].detach().mean().item()
+                    ),
+                }
+            )
 
         if (idx + 1) % 50 == 0:
             miou, _, _ = average_meter.compute_iou()
@@ -95,6 +192,41 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     average_meter.write_result(args.dataset_file)
     miou, fb_iou, _ = average_meter.compute_iou()
     print('Fold %d mIoU: %5.2f \t FB-IoU: %5.2f' % (args.fold, miou, fb_iou.item()))
+    if baseline_meter is not None:
+        baseline_miou, baseline_fb_iou, _ = baseline_meter.compute_iou()
+        oracle_miou, oracle_fb_iou, _ = oracle_meter.compute_iou()
+        print(
+            'Matched B0 Fold %d mIoU: %5.2f \t FB-IoU: %5.2f'
+            % (args.fold, baseline_miou, baseline_fb_iou.item())
+        )
+        print(
+            'Oracle B8 Fold %d mIoU: %5.2f \t FB-IoU: %5.2f'
+            % (args.fold, oracle_miou, oracle_fb_iou.item())
+        )
+        os.makedirs(args.output_dir, exist_ok=True)
+        metrics_path = join(args.output_dir, args.pmc_metrics_file)
+        metrics_payload = {
+            "schema_version": 1,
+            "experiment_id": "EXP-001",
+            "dataset": args.dataset_file,
+            "fold": args.fold,
+            "shots": args.shots,
+            "seed": args.seed,
+            "pmc_mode": args.pmc_mode,
+            "pmc_checkpoint": args.pmc_checkpoint,
+            "summary": {
+                "baseline_b0_miou": baseline_miou,
+                "treatment_miou": miou,
+                "oracle_b8_miou": oracle_miou,
+                "baseline_b0_fb_iou": float(baseline_fb_iou.item()),
+                "treatment_fb_iou": float(fb_iou.item()),
+                "oracle_b8_fb_iou": float(oracle_fb_iou.item()),
+            },
+            "episodes": paired_metrics,
+        }
+        with open(metrics_path, "w", encoding="utf-8") as handle:
+            json.dump(metrics_payload, handle, ensure_ascii=False, indent=2)
+        print(f"Wrote paired EXP-001 episode metrics to {metrics_path}")
     print('==================== Finished Testing ====================')
 
     return miou

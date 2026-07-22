@@ -2,6 +2,8 @@
 
 This is the compact engineering/process log for branch `exp/uncertainty-guided-fss`.
 
+> **Primary audience:** Agents maintaining the engineering and experiment workflow.
+
 ## Goal
 
 Project: **Uncertainty-Guided SAM2 Few-Shot Segmentation**.

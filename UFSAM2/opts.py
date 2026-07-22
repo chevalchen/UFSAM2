@@ -47,4 +47,18 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--threshold", type=float, default=0.5, help="Sigmoid threshold to binarize masks at eval.")
     parser.add_argument("--visualize", action="store_true", default=False, help="Save qualitative results.")
 
+    # EXP-001: post-memory feature calibration (AV-PMC). These options are
+    # intentionally independent of historical MTP/BRM/TTA experiments.
+    parser.add_argument("--post_memory_calibration", action="store_true", default=False, help="Enable AV-PMC after query memory fusion.")
+    parser.add_argument("--pmc_checkpoint", type=str, default="", help="Path to a staged AV-PMC checkpoint.")
+    parser.add_argument("--pmc_mode", type=str, default="gated", choices=["operator", "spatial", "gated"], help="AV-PMC ablation mode.")
+    parser.add_argument("--pmc_projection_dim", type=int, default=64, help="Projected evidence channel width.")
+    parser.add_argument("--pmc_hidden_dim", type=int, default=128, help="AV-PMC hidden channel width.")
+    parser.add_argument("--pmc_residual_scale", type=float, default=0.1, help="Maximum feature-residual scale.")
+    parser.add_argument("--pmc_spatial_threshold", type=float, default=0.0, help="Dense benefit threshold before gating.")
+    parser.add_argument("--pmc_episode_threshold", type=float, default=0.0, help="Predicted delta-IoU threshold for applying repair.")
+    parser.add_argument("--pmc_gate_temperature", type=float, default=0.25, help="Spatial gate temperature.")
+    parser.add_argument("--pmc_train_stage", type=str, default=None, choices=["operator", "spatial", "gain"], help="Train exactly one AV-PMC stage.")
+    parser.add_argument("--pmc_metrics_file", type=str, default="pmc_paired_metrics.json", help="Per-episode B0/treatment metrics written under output_dir.")
+
     return parser

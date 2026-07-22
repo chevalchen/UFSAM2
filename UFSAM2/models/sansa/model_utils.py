@@ -42,8 +42,24 @@ class DecoderOutput:
     """
     low_res_masks: Optional[Tensor] = None
     high_res_masks: Optional[Tensor] = None
+    low_res_multimasks: Optional[Tensor] = None
+    high_res_multimasks: Optional[Tensor] = None
+    ious: Optional[Tensor] = None
+    iou_token: Optional[Tensor] = None
+    mask_tokens: Optional[Tensor] = None
+    selected_mask_token: Optional[Tensor] = None
     obj_ptr: Optional[Tensor] = None
     pix_feat_with_mem: Optional[Tensor] = None
+    memory_summary: Optional[Tensor] = None
+    object_score_logits: Optional[Tensor] = None
+    baseline_low_res_masks: Optional[Tensor] = None
+    baseline_high_res_masks: Optional[Tensor] = None
+    baseline_ious: Optional[Tensor] = None
+    predicted_delta_iou: Optional[Tensor] = None
+    calibration_applied: Optional[Tensor] = None
+    spatial_benefit: Optional[Tensor] = None
+    spatial_gate: Optional[Tensor] = None
+    calibration_residual: Optional[Tensor] = None
     masks: Optional[Tensor] = None
 
     def __post_init__(self):
@@ -54,14 +70,27 @@ class DecoderOutput:
         for field in (
             "low_res_masks",
             "high_res_masks",
+            "low_res_multimasks",
+            "high_res_multimasks",
+            "ious",
+            "iou_token",
+            "mask_tokens",
+            "selected_mask_token",
             "obj_ptr",
             "object_score_logits",
-            "hyper_in",
-            "object_score",
             "masks",
             "pix_feat_with_mem",
+            "memory_summary",
+            "baseline_low_res_masks",
+            "baseline_high_res_masks",
+            "baseline_ious",
+            "predicted_delta_iou",
+            "calibration_applied",
+            "spatial_benefit",
+            "spatial_gate",
+            "calibration_residual",
         ):
-            val = getattr(self, field)
+            val = getattr(self, field, None)
             if val is not None:
                 setattr(self, field, val.cpu())
         return self

@@ -1,5 +1,7 @@
 # EXPERIMENT: Uncertainty-Guided SAM2 Few-Shot Segmentation
 
+> **面向对象：** 人类研究者审阅；正文使用中文，必要的 academic/technical terms 保留英文。
+
 当前分支：`exp/uncertainty-guided-fss`
 
 核心目标：把 uncertainty 从诊断信号变成能提升 official FSS `mIoU / FB-IoU` 的 SANSA 改进模块。最终主表必须是标准 FSS 表，而不是 support-selection 诊断表。
