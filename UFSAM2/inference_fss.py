@@ -1,18 +1,14 @@
 import argparse
 import sys
-from typing import Any
 from os.path import join
 import torch
 import torch.nn.functional as F
-from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import opts
 from models.sansa.sansa import build_sansa
-from models.sansa.post_memory_calibration import load_post_memory_calibrator_checkpoint
 from datasets import build_dataset
-from train_uncertainty_head import IoUHead, make_feature
 from util.commons import make_deterministic, setup_logging, resume_from_checkpoint
 import util.misc as utils
 from util.promptable_utils import build_prompt_dict
@@ -24,225 +20,20 @@ def main(args: argparse.Namespace) -> float:
     make_deterministic(args.seed)
     print(args)
 
-    if args.hflip_tta and args.uq_hflip_tta:
-        raise ValueError("Use either --hflip_tta or --uq_hflip_tta, not both.")
-    if args.uq_hflip_tta and not args.uq_head_ckpt:
-        raise ValueError("--uq_hflip_tta requires --uq_head_ckpt.")
-    if args.support_agg != "none":
-        if args.shots < 2:
-            raise ValueError("--support_agg is intended for multi-shot evaluation; use --shots > 1.")
-        if args.uq_hflip_tta:
-            raise ValueError("--support_agg and --uq_hflip_tta are not combined yet; evaluate Module B first.")
-        support_head_ckpt = args.support_uq_head_ckpt or args.uq_head_ckpt
-        if not support_head_ckpt:
-            raise ValueError("--support_agg requires --support_uq_head_ckpt or --uq_head_ckpt.")
-    if args.post_memory_calibration:
-        incompatible = []
-        if args.hflip_tta or args.uq_hflip_tta:
-            incompatible.append("hflip TTA")
-        if args.boundary_refine:
-            incompatible.append("boundary refinement")
-        if args.memory_to_point_prompt:
-            incompatible.append("memory-to-point prompting")
-        if args.support_agg != "none":
-            incompatible.append("support aggregation")
-        if incompatible:
-            raise ValueError(
-                "Evaluate AV-PMC standalone before combinations; disable " + ", ".join(incompatible) + "."
-            )
-        if not args.pmc_checkpoint and not args.resume:
-            raise ValueError("--post_memory_calibration requires --pmc_checkpoint or a full --resume checkpoint.")
-
-    model = build_sansa(
-        args.sam2_version,
-        args.adaptformer_stages,
-        args.channel_factor,
-        args.device,
-        hflip_tta=args.hflip_tta,
-        boundary_refine=args.boundary_refine,
-        memory_to_point_prompt=args.memory_to_point_prompt,
-        mtp_trigger_threshold=args.mtp_trigger_threshold,
-        mtp_accept_margin=args.mtp_accept_margin,
-        mtp_num_positive_points=args.mtp_num_positive_points,
-        mtp_num_negative_points=args.mtp_num_negative_points,
-        mtp_pos_threshold=args.mtp_pos_threshold,
-        mtp_neg_threshold=args.mtp_neg_threshold,
-        post_memory_calibration=args.post_memory_calibration,
-        pmc_mode=args.pmc_mode,
-        pmc_projection_dim=args.pmc_projection_dim,
-        pmc_hidden_dim=args.pmc_hidden_dim,
-        pmc_residual_scale=args.pmc_residual_scale,
-        pmc_spatial_threshold=args.pmc_spatial_threshold,
-        pmc_episode_threshold=args.pmc_episode_threshold,
-        pmc_gate_temperature=args.pmc_gate_temperature,
-    )
+    model = build_sansa(args.sam2_version, args.adaptformer_stages, args.channel_factor, args.device)
     device = torch.device(args.device)
     model.to(device)
 
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     if args.resume:
-        if args.post_memory_calibration:
-            load_sansa_checkpoint_for_pmc(model, args.resume)
-        else:
-            resume_from_checkpoint(args.resume, model)
-    if args.pmc_checkpoint:
-        load_post_memory_calibrator(model, args.pmc_checkpoint)
+        resume_from_checkpoint(args.resume, model)
 
     print(f"number of params: {n_parameters}")
     print('Start inference')
 
     mIoU = eval_fss(model, args)
     return mIoU
-
-
-def load_post_memory_calibrator(model: nn.Module, checkpoint_path: str) -> None:
-    calibrator = getattr(model, "post_memory_calibrator", None)
-    if calibrator is None:
-        raise RuntimeError("A PMC checkpoint was provided, but AV-PMC is not enabled.")
-    load_post_memory_calibrator_checkpoint(calibrator, checkpoint_path, strict=True)
-    print(f"Loaded AV-PMC checkpoint: {checkpoint_path}")
-
-
-def load_sansa_checkpoint_for_pmc(model: nn.Module, checkpoint_path: str) -> None:
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    state = checkpoint.get("model", checkpoint.get("state_dict", checkpoint))
-    if not isinstance(state, dict):
-        raise ValueError(f"Unsupported SANSA checkpoint format: {checkpoint_path}")
-    if state and all(key.startswith("module.") for key in state):
-        state = {key[len("module."):]: value for key, value in state.items()}
-    missing, unexpected = model.load_state_dict(state, strict=False)
-    missing = [key for key in missing if not key.startswith("post_memory_calibrator.")]
-    if missing or unexpected:
-        raise RuntimeError(
-            f"SANSA checkpoint mismatch. Missing non-PMC keys: {missing}; unexpected keys: {unexpected}"
-        )
-    print(f"Loaded SANSA checkpoint for AV-PMC: {checkpoint_path}")
-
-
-def _squeeze_trace_tensor(trace: dict[str, Any], key: str) -> torch.Tensor | None:
-    value = trace.get(key)
-    if value is None:
-        return None
-    return value.squeeze(0).cpu()
-
-
-def _aggregate_trace_tensor(traces: list[dict[str, Any]], key: str) -> torch.Tensor | None:
-    values = [_squeeze_trace_tensor(trace, key) for trace in traces]
-    values = [value for value in values if value is not None]
-    if not values:
-        return None
-    if len(values) == 1:
-        return values[0]
-    return torch.stack(values).mean(dim=0)
-
-
-def _merge_support_trace(query_trace: dict[str, Any], support_traces: list[dict[str, Any]]) -> dict[str, Any]:
-    trace = dict(query_trace)
-    for key in (
-        "support_iou_token",
-        "support_mask_token",
-        "support_mask_tokens",
-        "support_obj_ptr",
-        "support_memory_summary",
-    ):
-        trace[key] = _aggregate_trace_tensor(support_traces, key)
-    return trace
-
-
-def load_uncertainty_head(ckpt_path: str, device: torch.device) -> tuple[nn.Module, tuple[str, ...], torch.Tensor, torch.Tensor]:
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    feature_keys = tuple(ckpt["feature_keys"])
-    mean = ckpt["mean"].float()
-    std = ckpt["std"].float().clamp_min(1e-6)
-    head_args = ckpt.get("args", {})
-    hidden_dim = int(head_args.get("hidden_dim", ckpt["model"]["net.0.weight"].shape[0]))
-    dropout = float(head_args.get("dropout", 0.0))
-    head = IoUHead(mean.numel(), hidden_dim, dropout).to(device)
-    head.load_state_dict(ckpt["model"])
-    head.eval()
-    return head, feature_keys, mean.to(device), std.to(device)
-
-
-@torch.no_grad()
-def predict_expected_iou(
-    head: nn.Module,
-    feature_keys: tuple[str, ...],
-    mean: torch.Tensor,
-    std: torch.Tensor,
-    trace: dict[str, Any],
-    device: torch.device,
-) -> float:
-    feature = make_feature(trace, feature_keys).to(device)
-    feature = (feature - mean) / std
-    return head(feature.unsqueeze(0)).item()
-
-
-def _support_score_to_weights(scores: torch.Tensor, temperature: float) -> torch.Tensor:
-    if temperature > 0:
-        return torch.softmax(scores / temperature, dim=0)
-    scores = scores.clamp_min(0)
-    score_sum = scores.sum()
-    if score_sum <= 1e-6:
-        return torch.full_like(scores, 1.0 / scores.numel())
-    return scores / score_sum
-
-
-def _should_fallback_support_scores(args: argparse.Namespace, scores: torch.Tensor) -> bool:
-    if scores.numel() <= 1:
-        return False
-    if args.support_fallback_min_score > 0 and scores.max().item() < args.support_fallback_min_score:
-        return True
-    return (scores.max() - scores.min()).item() < args.support_fallback_margin
-
-
-@torch.no_grad()
-def _predict_weighted_support_logits(
-    model: torch.nn.Module,
-    query_img: torch.Tensor,
-    support_imgs: torch.Tensor,
-    support_masks: torch.Tensor,
-    args: argparse.Namespace,
-    support_uq_state: tuple[nn.Module, tuple[str, ...], torch.Tensor, torch.Tensor],
-) -> tuple[dict[str, torch.Tensor], bool, list[float]]:
-    head, feature_keys, mean_vec, std_vec = support_uq_state
-    head_device = torch.device(args.support_uq_head_device)
-    query_logits = []
-    support_scores = []
-
-    for support_idx in range(args.shots):
-        single_imgs = torch.cat([support_imgs[0, support_idx:support_idx + 1], query_img]).unsqueeze(0)
-        single_imgs = single_imgs.to(args.device)
-        single_masks = support_masks[:, support_idx:support_idx + 1]
-        single_prompt = build_prompt_dict(
-            single_masks,
-            args.prompt,
-            n_shots=1,
-            train_mode=False,
-            device=model.device,
-        )
-        single_outputs = model(single_imgs, single_prompt, return_traces=True)
-        trace = _merge_support_trace(single_outputs["traces"][-1], single_outputs.get("support_traces", []))
-        score = predict_expected_iou(head, feature_keys, mean_vec, std_vec, trace, head_device)
-        support_scores.append(score)
-        query_logits.append(single_outputs["pred_masks"][-1])
-
-    scores = torch.tensor(support_scores, device=query_logits[0].device, dtype=query_logits[0].dtype)
-    if _should_fallback_support_scores(args, scores):
-        all_imgs = torch.cat([support_imgs[0], query_img]).unsqueeze(0).to(args.device)
-        all_prompt = build_prompt_dict(
-            support_masks,
-            args.prompt,
-            n_shots=args.shots,
-            train_mode=False,
-            device=model.device,
-        )
-        return model(all_imgs, all_prompt), True, support_scores
-
-    weights = _support_score_to_weights(scores, args.support_weight_temp)
-    stacked_logits = torch.stack(query_logits, dim=0)
-    fused_logit = (weights[:, None, None] * stacked_logits).sum(dim=0)
-    return {"pred_masks": fused_logit.unsqueeze(0)}, False, support_scores
 
 
 def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
@@ -258,30 +49,9 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
     
     model.eval()
     average_meter = AverageMeter(args.dataset_file, ds.class_ids, ds.nclass)
-    uq_state = None
-    support_uq_state = None
-    gated_hflip_count = 0
-    support_fallback_count = 0
-    support_score_sum = 0.0
-    support_score_count = 0
-    support_margin_sum = 0.0
-    support_max_score_sum = 0.0
-    if args.uq_hflip_tta:
-        head_device = torch.device(args.uq_head_device)
-        uq_state = load_uncertainty_head(args.uq_head_ckpt, head_device)
-    if args.support_agg != "none":
-        support_head_ckpt = args.support_uq_head_ckpt or args.uq_head_ckpt
-        support_uq_state = load_uncertainty_head(support_head_ckpt, torch.device(args.support_uq_head_device))
-    if args.memory_to_point_prompt and hasattr(model, "reset_memory_to_point_stats"):
-        model.reset_memory_to_point_stats()
-    if args.post_memory_calibration and hasattr(model, "reset_post_memory_calibration_stats"):
-        model.reset_post_memory_calibration_stats()
 
-    max_episodes = len(dataloader) if args.max_eval_episodes is None else min(args.max_eval_episodes, len(dataloader))
-    pbar = tqdm(dataloader, total=max_episodes, ncols=80, desc='runn avg.', disable=(utils.get_rank() != 0), file=sys.stderr, dynamic_ncols=True)
+    pbar = tqdm(dataloader, ncols=80, desc='runn avg.', disable=(utils.get_rank() != 0), file=sys.stderr, dynamic_ncols=True)
     for idx, batch in enumerate(pbar):
-        if idx >= max_episodes:
-            break
         query_img, query_mask = batch['query_img'], batch['query_mask']
         support_imgs, support_masks = batch['support_imgs'], batch['support_masks']
 
@@ -292,40 +62,7 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         prompt_dict = build_prompt_dict(support_masks, args.prompt, n_shots=args.shots, train_mode=False, device=model.device)
 
         with torch.no_grad():
-            if support_uq_state is not None:
-                outputs, used_fallback, support_scores = _predict_weighted_support_logits(
-                    model,
-                    query_img,
-                    support_imgs,
-                    support_masks,
-                    args,
-                    support_uq_state,
-                )
-                support_fallback_count += int(used_fallback)
-                support_score_sum += sum(support_scores)
-                support_score_count += len(support_scores)
-                support_margin_sum += max(support_scores) - min(support_scores)
-                support_max_score_sum += max(support_scores)
-            elif uq_state is None:
-                outputs = model(imgs, prompt_dict)
-            else:
-                model.hflip_tta = False
-                outputs = model(imgs, prompt_dict, return_traces=True)
-                trace = _merge_support_trace(outputs["traces"][-1], outputs.get("support_traces", []))
-                head, feature_keys, mean_vec, std_vec = uq_state
-                expected_iou = predict_expected_iou(
-                    head,
-                    feature_keys,
-                    mean_vec,
-                    std_vec,
-                    trace,
-                    torch.device(args.uq_head_device),
-                )
-                if expected_iou < args.uq_gate_threshold:
-                    gated_hflip_count += 1
-                    model.hflip_tta = True
-                    outputs = model(imgs, prompt_dict)
-                model.hflip_tta = False
+            outputs = model(imgs, prompt_dict)
 
         pred_masks = outputs["pred_masks"].unsqueeze(0)  # [1, T, h, w]
         pred_masks = F.interpolate(pred_masks, size=(img_h, img_w), mode='bilinear', align_corners=False) 
@@ -340,6 +77,9 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
 
         if args.visualize:
             from util.visualization import visualize_episode
+            fg_inter = area_inter[1].sum().item()
+            fg_union = area_union[1].sum().item()
+            vis_iou = fg_inter / max(fg_union, 1e-6)
             visualize_episode(
                 support_imgs=[support_imgs[0, i].cpu() for i in range(args.shots)],
                 query_img=query_img[0].cpu(),
@@ -349,30 +89,12 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
                 out_dir=args.output_dir,
                 idx=idx,
                 src_size=model.sam.image_size,
-                iou=area_inter/area_union,
+                # iou=area_inter/area_union,
+                iou=vis_iou,
             )
     average_meter.write_result(args.dataset_file)
     miou, fb_iou, _ = average_meter.compute_iou()
     print('Fold %d mIoU: %5.2f \t FB-IoU: %5.2f' % (args.fold, miou, fb_iou.item()))
-    if args.uq_hflip_tta:
-        print(f'UQ-gated hflip triggered on {gated_hflip_count}/{max_episodes} episodes at threshold {args.uq_gate_threshold:.3f}')
-    if args.support_agg != "none":
-        mean_score = support_score_sum / max(support_score_count, 1)
-        mean_margin = support_margin_sum / max(max_episodes, 1)
-        mean_max_score = support_max_score_sum / max(max_episodes, 1)
-        print(f'Support aggregation: {args.support_agg}; fallback on {support_fallback_count}/{max_episodes} episodes; mean support score {mean_score:.3f}; mean max score {mean_max_score:.3f}; mean score margin {mean_margin:.3f}')
-    if args.memory_to_point_prompt and hasattr(model, "memory_to_point_stats"):
-        stats = model.memory_to_point_stats
-        print(f"Memory-to-point self-prompting: triggered {stats['triggered']} times; accepted {stats['accepted']} times")
-    if args.post_memory_calibration and hasattr(model, "post_memory_calibration_stats"):
-        stats = model.post_memory_calibration_stats
-        eligible = max(stats["eligible"], 1)
-        print(
-            "AV-PMC: "
-            f"mode={args.pmc_mode}; triggered {stats['triggered']}/{stats['eligible']}; "
-            f"mean spatial gate={stats['spatial_area_sum'] / eligible:.3f}; "
-            f"mean predicted delta-IoU={stats['predicted_gain_sum'] / eligible:.4f}"
-        )
     print('==================== Finished Testing ====================')
 
     return miou

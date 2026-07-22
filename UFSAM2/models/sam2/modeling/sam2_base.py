@@ -401,20 +401,11 @@ class SAM2Base(torch.nn.Module):
                 obj_ptr = lambda_is_obj_appearing * obj_ptr
             obj_ptr = obj_ptr + (1 - lambda_is_obj_appearing) * self.no_obj_ptr
 
-        iou_token = getattr(self.sam_mask_decoder, "last_iou_token_out", None)
-        mask_tokens = getattr(self.sam_mask_decoder, "last_mask_tokens_out", None)
         out = DecoderOutput(
-            low_res_masks=low_res_masks,
-            high_res_masks=high_res_masks,
-            low_res_multimasks=low_res_multimasks,
-            high_res_multimasks=high_res_multimasks,
-            obj_ptr=obj_ptr,
-            pix_feat_with_mem=backbone_features,
-            ious=ious,
-            iou_token=iou_token,
-            mask_tokens=mask_tokens,
-            selected_mask_token=sam_output_token,
-            object_score_logits=object_score_logits,
+            low_res_masks,
+            high_res_masks,
+            obj_ptr,
+            backbone_features
         )
         return out
 
@@ -446,7 +437,6 @@ class SAM2Base(torch.nn.Module):
             obj_ptr = torch.zeros(
                 mask_inputs.size(0), self.hidden_dim, device=mask_inputs.device
             )
-            out = DecoderOutput()
         else:
             # produce an object pointer using the SAM decoder from the mask input
             out: DecoderOutput = self._forward_sam_heads(
@@ -469,9 +459,7 @@ class SAM2Base(torch.nn.Module):
         out.obj_ptr = obj_ptr
         out.object_score_logits = object_score_logits
         out.low_res_masks = low_res_masks
-        out.low_res_multimasks = low_res_masks
         out.ious = ious
-        out.pix_feat_with_mem = backbone_features
         # out.high_res_masks = high_res_masks
         out.high_res_masks = F.interpolate(
                 low_res_masks,
@@ -479,7 +467,6 @@ class SAM2Base(torch.nn.Module):
                 mode="bilinear",
                 align_corners=False,
             )
-        out.high_res_multimasks = out.high_res_masks
         return out
 
     def forward_image(self, img_batch: torch.Tensor):

@@ -42,27 +42,9 @@ class DecoderOutput:
     """
     low_res_masks: Optional[Tensor] = None
     high_res_masks: Optional[Tensor] = None
-    low_res_multimasks: Optional[Tensor] = None
-    high_res_multimasks: Optional[Tensor] = None
     obj_ptr: Optional[Tensor] = None
     pix_feat_with_mem: Optional[Tensor] = None
-    ious: Optional[Tensor] = None
-    iou_token: Optional[Tensor] = None
-    mask_tokens: Optional[Tensor] = None
-    selected_mask_token: Optional[Tensor] = None
-    memory_summary: Optional[Tensor] = None
-    object_score_logits: Optional[Tensor] = None
     masks: Optional[Tensor] = None
-    pmc_baseline_low_res_masks: Optional[Tensor] = None
-    pmc_baseline_ious: Optional[Tensor] = None
-    pmc_query_summary: Optional[Tensor] = None
-    pmc_precal_memory_summary: Optional[Tensor] = None
-    pmc_predicted_delta_iou: Optional[Tensor] = None
-    pmc_episode_gate: Optional[Tensor] = None
-    pmc_spatial_benefit: Optional[Tensor] = None
-    pmc_spatial_gate: Optional[Tensor] = None
-    pmc_residual_norm: Optional[Tensor] = None
-    pmc_applied: bool = False
 
     def __post_init__(self):
         self.masks = self.low_res_masks
@@ -72,30 +54,14 @@ class DecoderOutput:
         for field in (
             "low_res_masks",
             "high_res_masks",
-            "low_res_multimasks",
-            "high_res_multimasks",
             "obj_ptr",
             "object_score_logits",
             "hyper_in",
             "object_score",
             "masks",
             "pix_feat_with_mem",
-            "ious",
-            "iou_token",
-            "mask_tokens",
-            "selected_mask_token",
-            "memory_summary",
-            "pmc_baseline_low_res_masks",
-            "pmc_baseline_ious",
-            "pmc_query_summary",
-            "pmc_precal_memory_summary",
-            "pmc_predicted_delta_iou",
-            "pmc_episode_gate",
-            "pmc_spatial_benefit",
-            "pmc_spatial_gate",
-            "pmc_residual_norm",
         ):
-            val = getattr(self, field, None)
+            val = getattr(self, field)
             if val is not None:
                 setattr(self, field, val.cpu())
         return self

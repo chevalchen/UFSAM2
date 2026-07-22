@@ -12,87 +12,17 @@ import torch.nn.functional as F
 from models.sam2.modeling.sam2_utils import preprocess
 from models.sam2.modeling.sam2_base import SAM2Base 
 from models.sansa.model_utils import BackboneOutput, DecoderOutput
-from models.sansa.boundary_refine import BoundaryRefinementModule
-from models.sansa.post_memory_calibration import PostMemoryFeatureCalibrator
 from util.path_utils import SAM2_PATHS_CONFIG, SAM2_WEIGHTS_URL
 from util.promptable_utils import rescale_prompt
 
 
 class SANSA(nn.Module):
-    def __init__(
-        self,
-        sam: SAM2Base,
-        device: torch.device,
-        hflip_tta: bool = False,
-        boundary_refine: bool = False,
-        memory_to_point_prompt: bool = False,
-        mtp_trigger_threshold: float = 0.92,
-        mtp_accept_margin: float = 0.0,
-        mtp_num_positive_points: int = 1,
-        mtp_num_negative_points: int = 1,
-        mtp_pos_threshold: float = 0.65,
-        mtp_neg_threshold: float = 0.35,
-        post_memory_calibration: bool = False,
-        pmc_mode: str = "gated",
-        pmc_projection_dim: int = 64,
-        pmc_hidden_dim: int = 128,
-        pmc_residual_scale: float = 0.1,
-        pmc_spatial_threshold: float = 0.0,
-        pmc_episode_threshold: float = 0.0,
-        pmc_gate_temperature: float = 0.25,
-    ):
+    def __init__(self, sam: SAM2Base, device: torch.device):
         super().__init__()
         self.sam = sam
         self.device = device
-        self.hflip_tta = hflip_tta
-        self.brm = BoundaryRefinementModule() if boundary_refine else None
-        self.memory_to_point_prompt = memory_to_point_prompt
-        self.mtp_trigger_threshold = mtp_trigger_threshold
-        self.mtp_accept_margin = mtp_accept_margin
-        self.mtp_num_positive_points = mtp_num_positive_points
-        self.mtp_num_negative_points = mtp_num_negative_points
-        self.mtp_pos_threshold = mtp_pos_threshold
-        self.mtp_neg_threshold = mtp_neg_threshold
-        self.post_memory_calibrator = (
-            PostMemoryFeatureCalibrator(
-                feature_dim=getattr(sam, "hidden_dim", 256),
-                projection_dim=pmc_projection_dim,
-                hidden_dim=pmc_hidden_dim,
-                residual_scale=pmc_residual_scale,
-                mode=pmc_mode,
-                spatial_threshold=pmc_spatial_threshold,
-                episode_threshold=pmc_episode_threshold,
-                gate_temperature=pmc_gate_temperature,
-            )
-            if post_memory_calibration
-            else None
-        )
-        self.reset_memory_to_point_stats()
-        self.reset_post_memory_calibration_stats()
 
-    def reset_memory_to_point_stats(self) -> None:
-        self.memory_to_point_stats = {"triggered": 0, "accepted": 0}
-
-    def reset_post_memory_calibration_stats(self) -> None:
-        self.post_memory_calibration_stats = {
-            "eligible": 0,
-            "triggered": 0,
-            "spatial_area_sum": 0.0,
-            "predicted_gain_sum": 0.0,
-        }
-
-    def set_post_memory_calibration_train_stage(self, stage: str | None) -> None:
-        if self.post_memory_calibrator is None:
-            raise RuntimeError("Post-memory calibration is not enabled.")
-        self.post_memory_calibrator.set_train_stage(stage)
-
-    def forward(
-        self,
-        samples: torch.Tensor,
-        prompt_dict: List[Dict[str, Any]],
-        return_traces: bool = False,
-        return_calibration_data: bool = False,
-    ) -> Dict[str, Any]:
+    def forward(self, samples: torch.Tensor, prompt_dict: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Run SANSA.
         Args:
@@ -107,13 +37,7 @@ class SANSA(nn.Module):
 
         samples, B, T, orig_size = self._preprocess_visual_features(samples, self.sam.image_size)
         backbone_output: BackboneOutput = self._forward_backbone(samples, orig_size)
-        flipped_backbone_output = None
-        if self.hflip_tta:
-            flipped_backbone_output = self._forward_backbone(torch.flip(samples, dims=[-1]), orig_size)
         outputs = {"masks": []}
-        traces = []
-        support_traces = []
-        calibration_records = []
 
         n_shots = prompt_dict['shots']
         for b in range(B):
@@ -129,26 +53,9 @@ class SANSA(nn.Module):
                         decoder_out: DecoderOutput = self.sam._use_mask_as_output(backbone_output, frame_prompt, absolute_idx)
                     else:
                         decoder_out: DecoderOutput = self._compute_decoder_out_no_mem(backbone_output, absolute_idx, prompt_input=frame_prompt)
-                    if return_traces:
-                        support_traces.append(self._build_support_trace(decoder_out, b, idx, absolute_idx))
                         
                 else:
                     decoder_out: DecoderOutput = self._compute_decoder_out_w_mem(backbone_output, absolute_idx, idx, self.memory_bank)
-                    if self.hflip_tta:
-                        assert flipped_backbone_output is not None
-                        decoder_out = self._apply_hflip_tta(decoder_out, flipped_backbone_output, absolute_idx, idx, self.memory_bank)
-                    decoder_out = self._apply_boundary_refine(decoder_out)
-                    if return_traces:
-                        traces.append(self._build_uncertainty_trace(decoder_out, b, idx, absolute_idx))
-                    if return_calibration_data and self.post_memory_calibrator is not None:
-                        calibration_records.append(
-                            self._build_post_memory_calibration_record(
-                                decoder_out,
-                                b,
-                                idx,
-                                absolute_idx,
-                            )
-                        )
 
                 # update memory bank
                 mem_entry = self._compute_memory_bank_dict(decoder_out, backbone_output, absolute_idx)
@@ -157,13 +64,7 @@ class SANSA(nn.Module):
 
         masks = torch.cat(outputs["masks"])
         masks = F.interpolate(masks[None], size=orig_size[0], mode='bilinear', align_corners=False)[0]
-        result = {"pred_masks": masks}
-        if return_traces:
-            result["traces"] = traces
-            result["support_traces"] = support_traces
-        if return_calibration_data:
-            result["post_memory_calibration"] = calibration_records
-        return result
+        return {"pred_masks": masks}
 
     def _preprocess_visual_features(
         self, samples: torch.Tensor, image_size: int
@@ -216,46 +117,6 @@ class SANSA(nn.Module):
         )
         return decoder_out
 
-    def _apply_hflip_tta(
-        self,
-        decoder_out: DecoderOutput,
-        flipped_backbone_out: BackboneOutput,
-        idx: int,
-        memory_idx: int,
-        memory_bank: Dict[int, Dict[str, torch.Tensor]],
-    ) -> DecoderOutput:
-        """
-        Re-decode a horizontally flipped query frame with the same support memory,
-        flip logits back, and average in logit space.
-        """
-        flipped_out = self._compute_decoder_out_w_mem(flipped_backbone_out, idx, memory_idx, memory_bank)
-        decoder_out.low_res_masks = 0.5 * (
-            decoder_out.low_res_masks + torch.flip(flipped_out.low_res_masks, dims=[-1])
-        )
-        decoder_out.masks = decoder_out.low_res_masks
-        if decoder_out.high_res_masks is not None and flipped_out.high_res_masks is not None:
-            decoder_out.high_res_masks = 0.5 * (
-                decoder_out.high_res_masks + torch.flip(flipped_out.high_res_masks, dims=[-1])
-            )
-        return decoder_out
-
-    def _apply_boundary_refine(self, decoder_out: DecoderOutput) -> DecoderOutput:
-        if self.brm is None:
-            return decoder_out
-        brm_feat = getattr(decoder_out, "_brm_feat", None)
-        if brm_feat is None:
-            raise RuntimeError("BRM is enabled, but decoder output has no high-resolution BRM feature.")
-        corrected = self.brm(decoder_out.low_res_masks, brm_feat)
-        decoder_out.low_res_masks = corrected
-        decoder_out.high_res_masks = F.interpolate(
-            corrected.detach(),
-            size=(self.sam.image_size, self.sam.image_size),
-            mode="bilinear",
-            align_corners=False,
-        )
-        decoder_out.masks = decoder_out.low_res_masks
-        return decoder_out
-
     def _compute_decoder_out_w_mem(
         self,
         backbone_out: BackboneOutput,
@@ -295,311 +156,7 @@ class SANSA(nn.Module):
             high_res_features=high_res_features,
             multimask_output=True if memory_idx > 0 else False
         )
-        decoder_out.memory_summary = pix_feat_with_mem.mean(dim=(-2, -1))
-        decoder_out._brm_feat = high_res_features[0]
-        if self.post_memory_calibrator is not None:
-            query_feature = backbone_out.get_current_feats_x16(idx)
-            decoder_out = self._apply_post_memory_calibration(
-                decoder_out,
-                query_feature,
-                pix_feat_with_mem,
-                high_res_features,
-                multimask_output=True if memory_idx > 0 else False,
-            )
-        if self.memory_to_point_prompt:
-            mtp_feature = (
-                decoder_out.pix_feat_with_mem
-                if self.post_memory_calibrator is not None and decoder_out.pix_feat_with_mem is not None
-                else pix_feat_with_mem
-            )
-            decoder_out = self._apply_memory_to_point_prompt(
-                decoder_out,
-                mtp_feature,
-                high_res_features,
-            )
         return decoder_out
-
-    def _apply_post_memory_calibration(
-        self,
-        baseline_out: DecoderOutput,
-        query_feature: torch.Tensor,
-        pix_feat_with_mem: torch.Tensor,
-        high_res_features: List[torch.Tensor],
-        multimask_output: bool,
-    ) -> DecoderOutput:
-        calibrator = self.post_memory_calibrator
-        if calibrator is None:
-            return baseline_out
-
-        precal_memory_summary = pix_feat_with_mem.mean(dim=(-2, -1))
-        calibration = calibrator(query_feature, pix_feat_with_mem, baseline_out)
-        target_out = baseline_out
-        if calibration.applied:
-            target_out = self.sam._forward_sam_heads(
-                backbone_features=calibration.calibrated_feature,
-                high_res_features=high_res_features,
-                multimask_output=multimask_output,
-            )
-
-        target_out.memory_summary = calibration.calibrated_feature.mean(dim=(-2, -1))
-        target_out._brm_feat = high_res_features[0]
-        target_out.pmc_baseline_low_res_masks = baseline_out.low_res_masks
-        target_out.pmc_baseline_ious = baseline_out.ious
-        target_out.pmc_query_summary = query_feature.mean(dim=(-2, -1))
-        target_out.pmc_precal_memory_summary = precal_memory_summary
-        target_out.pmc_predicted_delta_iou = calibration.predicted_delta_iou
-        target_out.pmc_episode_gate = calibration.episode_gate
-        target_out.pmc_spatial_benefit = calibration.spatial_benefit
-        target_out.pmc_spatial_gate = calibration.spatial_gate
-        target_out.pmc_residual_norm = calibration.residual.square().mean(
-            dim=(1, 2, 3), keepdim=True
-        ).sqrt()
-        target_out.pmc_applied = calibration.applied
-
-        stats = self.post_memory_calibration_stats
-        stats["eligible"] += int(calibration.episode_gate.numel())
-        stats["triggered"] += int(calibration.episode_gate.detach().sum().item())
-        stats["spatial_area_sum"] += float(calibration.spatial_gate.detach().mean().item())
-        stats["predicted_gain_sum"] += float(
-            calibration.predicted_delta_iou.detach().mean().item()
-        )
-        return target_out
-
-    def _apply_memory_to_point_prompt(
-        self,
-        decoder_out: DecoderOutput,
-        pix_feat_with_mem: torch.Tensor,
-        high_res_features: List[torch.Tensor],
-    ) -> DecoderOutput:
-        """
-        Convert an uncertain memory-only query mask into sparse point prompts and
-        run one extra SAM head pass. This is intentionally conservative: it accepts
-        the second pass only when the unsupervised quality score does not regress.
-        """
-        quality_before = self._memory_to_point_quality(decoder_out)
-        decoder_out.memory_to_point_quality_before = quality_before.detach()
-        decoder_out.memory_to_point_quality_after = quality_before.detach()
-        decoder_out.memory_to_point_triggered = False
-        decoder_out.memory_to_point_accepted = False
-        decoder_out.memory_to_point_coords = None
-        decoder_out.memory_to_point_labels = None
-
-        if quality_before.item() >= self.mtp_trigger_threshold:
-            return decoder_out
-
-        self.memory_to_point_stats["triggered"] += 1
-        decoder_out.memory_to_point_triggered = True
-        point_inputs = self._build_memory_to_point_inputs(decoder_out)
-        if point_inputs is None:
-            return decoder_out
-
-        refined_out: DecoderOutput = self.sam._forward_sam_heads(
-            backbone_features=pix_feat_with_mem,
-            point_inputs=point_inputs,
-            high_res_features=high_res_features,
-            multimask_output=True,
-        )
-        refined_out.memory_summary = decoder_out.memory_summary
-        refined_out._brm_feat = getattr(decoder_out, "_brm_feat", None)
-
-        quality_after = self._memory_to_point_quality(refined_out)
-        accept = quality_after.item() >= quality_before.item() + self.mtp_accept_margin
-        target_out = refined_out if accept else decoder_out
-        if accept:
-            self.memory_to_point_stats["accepted"] += 1
-
-        target_out.memory_to_point_quality_before = quality_before.detach()
-        target_out.memory_to_point_quality_after = quality_after.detach()
-        target_out.memory_to_point_triggered = True
-        target_out.memory_to_point_accepted = accept
-        target_out.memory_to_point_coords = point_inputs["point_coords"].detach()
-        target_out.memory_to_point_labels = point_inputs["point_labels"].detach()
-        return target_out
-
-    def _memory_to_point_quality(self, decoder_out: DecoderOutput) -> torch.Tensor:
-        stability = self._logit_stability_score(decoder_out.low_res_masks).mean()
-        disagreement = self._multimask_disagreement(decoder_out)
-        return (stability - 0.25 * disagreement).clamp(0.0, 1.0)
-
-    @staticmethod
-    def _logit_stability_score(mask_logits: torch.Tensor, delta: float = 0.05) -> torch.Tensor:
-        flat_logits = mask_logits.flatten(-2)
-        area_i = torch.sum(flat_logits > delta, dim=-1).float()
-        area_u = torch.sum(flat_logits > -delta, dim=-1).float()
-        return torch.where(area_u > 0, area_i / area_u.clamp_min(1.0), torch.ones_like(area_i))
-
-    @staticmethod
-    def _multimask_disagreement(decoder_out: DecoderOutput) -> torch.Tensor:
-        if decoder_out.low_res_multimasks is None or decoder_out.low_res_multimasks.size(1) <= 1:
-            return decoder_out.low_res_masks.new_tensor(0.0)
-        selected = decoder_out.low_res_masks.sigmoid()
-        candidates = decoder_out.low_res_multimasks.sigmoid()
-        return torch.mean(torch.abs(candidates - selected))
-
-    def _build_memory_to_point_inputs(self, decoder_out: DecoderOutput) -> Dict[str, torch.Tensor] | None:
-        if decoder_out.low_res_masks is None:
-            return None
-
-        prob = decoder_out.low_res_masks.detach().sigmoid()
-        _, _, mask_h, mask_w = prob.shape
-        points: list[tuple[int, int]] = []
-        labels: list[int] = []
-
-        positive_score = self._positive_point_score(prob)
-        for y, x in self._topk_spatial_points(
-            positive_score,
-            self.mtp_num_positive_points,
-            min_score=self.mtp_pos_threshold,
-        ):
-            points.append((y, x))
-            labels.append(1)
-
-        if not points:
-            return None
-
-        negative_score = self._negative_point_score(decoder_out, prob)
-        for y, x in self._topk_spatial_points(
-            negative_score,
-            self.mtp_num_negative_points,
-            min_score=1e-6,
-        ):
-            points.append((y, x))
-            labels.append(0)
-
-        coords = prob.new_tensor(
-            [
-                [
-                    (x + 0.5) * self.sam.image_size / mask_w,
-                    (y + 0.5) * self.sam.image_size / mask_h,
-                ]
-                for y, x in points
-            ]
-        )
-        point_labels = torch.tensor(labels, device=prob.device, dtype=torch.int32)
-        return {
-            "point_coords": coords.unsqueeze(0),
-            "point_labels": point_labels.unsqueeze(0),
-        }
-
-    def _positive_point_score(self, prob: torch.Tensor) -> torch.Tensor:
-        foreground = (prob > self.mtp_pos_threshold).float()
-        erode_kernel = 9
-        if min(prob.shape[-2:]) >= erode_kernel:
-            inverse = 1.0 - foreground
-            interior = 1.0 - F.max_pool2d(
-                inverse,
-                kernel_size=erode_kernel,
-                stride=1,
-                padding=erode_kernel // 2,
-            )
-            if interior.sum() > 0:
-                foreground = interior
-        return prob * foreground
-
-    def _negative_point_score(self, decoder_out: DecoderOutput, selected_prob: torch.Tensor) -> torch.Tensor:
-        outside_selected = (selected_prob < self.mtp_neg_threshold).float()
-        if decoder_out.low_res_multimasks is not None and decoder_out.low_res_multimasks.size(1) > 1:
-            candidate_prob = decoder_out.low_res_multimasks.detach().sigmoid().max(dim=1, keepdim=True).values
-            return candidate_prob * outside_selected
-        return (1.0 - selected_prob) * outside_selected
-
-    @staticmethod
-    def _topk_spatial_points(
-        score: torch.Tensor,
-        num_points: int,
-        min_score: float,
-    ) -> list[tuple[int, int]]:
-        if num_points <= 0:
-            return []
-        score_2d = score[0, 0]
-        flat_score = score_2d.flatten()
-        k = min(num_points, flat_score.numel())
-        values, indices = torch.topk(flat_score, k=k)
-        points = []
-        width = score_2d.shape[-1]
-        for value, index in zip(values, indices):
-            if value.item() < min_score:
-                continue
-            y = int(index.item() // width)
-            x = int(index.item() % width)
-            points.append((y, x))
-        return points
-
-    def _build_uncertainty_trace(
-        self, decoder_out: DecoderOutput, batch_idx: int, frame_idx: int, absolute_idx: int
-    ) -> Dict[str, Any]:
-        return {
-            "batch_idx": batch_idx,
-            "frame_idx": frame_idx,
-            "absolute_idx": absolute_idx,
-            "sam_score": self._detach_cpu(decoder_out.ious),
-            "query_iou_token": self._detach_cpu(decoder_out.iou_token),
-            "query_mask_tokens": self._detach_cpu(decoder_out.mask_tokens),
-            "query_mask_token": self._detach_cpu(decoder_out.selected_mask_token),
-            "query_obj_ptr": self._detach_cpu(decoder_out.obj_ptr),
-            "query_memory_summary": self._detach_cpu(decoder_out.memory_summary),
-            "memory_to_point_triggered": getattr(decoder_out, "memory_to_point_triggered", False),
-            "memory_to_point_accepted": getattr(decoder_out, "memory_to_point_accepted", False),
-            "memory_to_point_quality_before": self._detach_cpu(getattr(decoder_out, "memory_to_point_quality_before", None)),
-            "memory_to_point_quality_after": self._detach_cpu(getattr(decoder_out, "memory_to_point_quality_after", None)),
-            "memory_to_point_coords": self._detach_cpu(getattr(decoder_out, "memory_to_point_coords", None)),
-            "memory_to_point_labels": self._detach_cpu(getattr(decoder_out, "memory_to_point_labels", None)),
-            "pmc_applied": decoder_out.pmc_applied,
-            "pmc_predicted_delta_iou": self._detach_cpu(decoder_out.pmc_predicted_delta_iou),
-            "pmc_episode_gate": self._detach_cpu(decoder_out.pmc_episode_gate),
-            "pmc_spatial_benefit": self._detach_cpu(decoder_out.pmc_spatial_benefit),
-            "pmc_spatial_gate": self._detach_cpu(decoder_out.pmc_spatial_gate),
-            "pmc_residual_norm": self._detach_cpu(decoder_out.pmc_residual_norm),
-            "pmc_query_summary": self._detach_cpu(decoder_out.pmc_query_summary),
-            "pmc_precal_memory_summary": self._detach_cpu(decoder_out.pmc_precal_memory_summary),
-        }
-
-    @staticmethod
-    def _build_post_memory_calibration_record(
-        decoder_out: DecoderOutput,
-        batch_idx: int,
-        frame_idx: int,
-        absolute_idx: int,
-    ) -> Dict[str, Any]:
-        return {
-            "batch_idx": batch_idx,
-            "frame_idx": frame_idx,
-            "absolute_idx": absolute_idx,
-            "baseline_low_res_masks": decoder_out.pmc_baseline_low_res_masks,
-            "calibrated_low_res_masks": decoder_out.low_res_masks,
-            "baseline_ious": decoder_out.pmc_baseline_ious,
-            "calibrated_ious": decoder_out.ious,
-            "predicted_delta_iou": decoder_out.pmc_predicted_delta_iou,
-            "episode_gate": decoder_out.pmc_episode_gate,
-            "spatial_benefit": decoder_out.pmc_spatial_benefit,
-            "spatial_gate": decoder_out.pmc_spatial_gate,
-            "residual_norm": decoder_out.pmc_residual_norm,
-            "applied": decoder_out.pmc_applied,
-        }
-
-    def _build_support_trace(
-        self, decoder_out: DecoderOutput, batch_idx: int, frame_idx: int, absolute_idx: int
-    ) -> Dict[str, Any]:
-        memory_summary = decoder_out.memory_summary
-        if memory_summary is None and decoder_out.pix_feat_with_mem is not None:
-            memory_summary = decoder_out.pix_feat_with_mem.mean(dim=(-2, -1))
-        return {
-            "batch_idx": batch_idx,
-            "frame_idx": frame_idx,
-            "absolute_idx": absolute_idx,
-            "support_sam_score": self._detach_cpu(decoder_out.ious),
-            "support_iou_token": self._detach_cpu(decoder_out.iou_token),
-            "support_mask_tokens": self._detach_cpu(decoder_out.mask_tokens),
-            "support_mask_token": self._detach_cpu(decoder_out.selected_mask_token),
-            "support_obj_ptr": self._detach_cpu(decoder_out.obj_ptr),
-            "support_memory_summary": self._detach_cpu(memory_summary),
-        }
-
-    @staticmethod
-    def _detach_cpu(x: torch.Tensor | None) -> torch.Tensor | None:
-        if x is None:
-            return None
-        return x.detach().cpu()
 
     def _compute_memory_bank_dict(
         self, decoder_out: DecoderOutput, backbone_out: BackboneOutput, idx: int
@@ -662,30 +219,7 @@ class SANSA(nn.Module):
         return BackboneOutput(orig_size, vision_feats, vision_pos, sizes)
 
 
-def build_sansa(
-    sam2_version: str = 'large',
-    adaptformer_stages: List[int] = [2, 3],
-    channel_factor: float = 0.3,
-    device: str = 'cuda',
-    hflip_tta: bool = False,
-    boundary_refine: bool = False,
-    memory_to_point_prompt: bool = False,
-    mtp_trigger_threshold: float = 0.92,
-    mtp_accept_margin: float = 0.0,
-    mtp_num_positive_points: int = 1,
-    mtp_num_negative_points: int = 1,
-    mtp_pos_threshold: float = 0.65,
-    mtp_neg_threshold: float = 0.35,
-    post_memory_calibration: bool = False,
-    pmc_mode: str = "gated",
-    pmc_projection_dim: int = 64,
-    pmc_hidden_dim: int = 128,
-    pmc_residual_scale: float = 0.1,
-    pmc_spatial_threshold: float = 0.0,
-    pmc_episode_threshold: float = 0.0,
-    pmc_gate_temperature: float = 0.25,
-    pmc_train_stage: str | None = None,
-) -> SANSA:
+def build_sansa(sam2_version: str = 'large', adaptformer_stages: List[int] = [2, 3], channel_factor: float = 0.3, device: str = 'cuda') -> SANSA:
     assert sam2_version in SAM2_PATHS_CONFIG.keys(), f'wrong argument sam2_version: {sam2_version}'
     
     sam2_weights, sam2_config = SAM2_PATHS_CONFIG[sam2_version]
@@ -707,35 +241,10 @@ def build_sansa(
 
     state_dict = torch.load(sam2_weights, map_location="cpu", weights_only=False)["model"]
     sam.load_state_dict(state_dict, strict=False)
-    model = SANSA(
-        sam=sam,
-        device=torch.device(device),
-        hflip_tta=hflip_tta,
-        boundary_refine=boundary_refine,
-        memory_to_point_prompt=memory_to_point_prompt,
-        mtp_trigger_threshold=mtp_trigger_threshold,
-        mtp_accept_margin=mtp_accept_margin,
-        mtp_num_positive_points=mtp_num_positive_points,
-        mtp_num_negative_points=mtp_num_negative_points,
-        mtp_pos_threshold=mtp_pos_threshold,
-        mtp_neg_threshold=mtp_neg_threshold,
-        post_memory_calibration=post_memory_calibration,
-        pmc_mode=pmc_mode,
-        pmc_projection_dim=pmc_projection_dim,
-        pmc_hidden_dim=pmc_hidden_dim,
-        pmc_residual_scale=pmc_residual_scale,
-        pmc_spatial_threshold=pmc_spatial_threshold,
-        pmc_episode_threshold=pmc_episode_threshold,
-        pmc_gate_temperature=pmc_gate_temperature,
-    )
+    model = SANSA(sam=sam, device=torch.device(device))
 
-    # The calibration funnel freezes SANSA/adapters and trains one PMC stage at a time.
+    # freeze everything except adapters
     for name, p in model.named_parameters():
-        p.requires_grad = ("adapter" in name or "brm" in name)
-    if model.post_memory_calibrator is not None:
-        if pmc_train_stage is not None:
-            for p in model.parameters():
-                p.requires_grad = False
-        model.set_post_memory_calibration_train_stage(pmc_train_stage)
+        p.requires_grad = ("adapter" in name)
 
     return model
