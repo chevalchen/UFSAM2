@@ -13,6 +13,11 @@ from models.sansa.sansa import build_sansa
 from models.sansa.post_memory_calibration import load_post_memory_calibrator_checkpoint
 from datasets import build_dataset
 from util.commons import make_deterministic, setup_logging, resume_from_checkpoint
+from util.episode_manifest import (
+    EpisodeReplayDataset,
+    file_sha256,
+    load_episode_manifest,
+)
 import util.misc as utils
 from util.promptable_utils import build_prompt_dict
 from util.metrics import AverageMeter, Evaluator
@@ -56,31 +61,59 @@ def main(args: argparse.Namespace) -> float:
     print(f"number of params: {n_parameters}")
     print('Start inference')
 
-    mIoU = eval_fss(model, args)
-    return mIoU
+    summary = eval_fss(model, args)
+    return summary["treatment_miou"]
 
 
-def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
+def eval_fss(
+    model: torch.nn.Module,
+    args: argparse.Namespace,
+    dataset=None,
+    metrics_path: str | None = None,
+    provenance: dict | None = None,
+) -> dict:
     """
     Evaluate SANSA on the few-shot segmentation benchmark.
     Computes and prints mIoU across the validation set.
     """
     # load data
-    validation_ds = 'coco' if args.dataset_file == 'multi' else args.dataset_file 
+    validation_ds = 'coco' if args.dataset_file == 'multi' else args.dataset_file
     print(f'Evaluating {validation_ds} - fold: {args.fold}')
-    ds = build_dataset(validation_ds, image_set='val', args=args)
+    if dataset is None:
+        if args.episode_manifest:
+            manifest = load_episode_manifest(args.episode_manifest)
+            base_dataset = build_dataset(
+                validation_ds,
+                image_set=manifest["source_split"],
+                args=args,
+            )
+            ds = EpisodeReplayDataset(
+                base_dataset,
+                manifest,
+                args.episode_partition,
+                data_root=args.data_root,
+                expected_dataset=validation_ds,
+                expected_fold=args.fold,
+                expected_shots=args.shots,
+                expected_source_split=manifest["source_split"],
+            )
+        else:
+            ds = build_dataset(validation_ds, image_set='val', args=args)
+    else:
+        ds = dataset
     dataloader = DataLoader(ds, batch_size=1, shuffle=False, num_workers=args.num_workers)
-    
+
+    pmc_enabled = getattr(model, "post_memory_calibrator", None) is not None
     model.eval()
     average_meter = AverageMeter(args.dataset_file, ds.class_ids, ds.nclass)
     baseline_meter = (
         AverageMeter(args.dataset_file, ds.class_ids, ds.nclass)
-        if args.post_memory_calibration
+        if pmc_enabled
         else None
     )
     oracle_meter = (
         AverageMeter(args.dataset_file, ds.class_ids, ds.nclass)
-        if args.post_memory_calibration
+        if pmc_enabled
         else None
     )
     paired_metrics = []
@@ -100,7 +133,7 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
             outputs = model(
                 imgs,
                 prompt_dict,
-                return_calibration_data=args.post_memory_calibration,
+                return_calibration_data=pmc_enabled,
             )
 
         pred_masks = outputs["pred_masks"].unsqueeze(0)  # [1, T, h, w]
@@ -110,7 +143,7 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         area_inter, area_union = Evaluator.classify_prediction(pred_masks[-1:].float(), batch, device=imgs.device)
         average_meter.update(area_inter, area_union, batch['class_id'].cuda())
 
-        if args.post_memory_calibration:
+        if pmc_enabled:
             records = outputs.get("post_memory_calibration", [])
             if len(records) != 1:
                 raise RuntimeError(
@@ -151,9 +184,13 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
                 batch["class_id"].cuda(),
             )
             class_id = batch["class_id"].reshape(-1)[0].item()
+            episode_id = batch.get("episode_id", [None])
+            if isinstance(episode_id, (list, tuple)):
+                episode_id = episode_id[0]
             paired_metrics.append(
                 {
                     "episode_idx": idx,
+                    "episode_id": episode_id,
                     "class_id": int(class_id),
                     "baseline_iou": baseline_fg_iou,
                     "treatment_iou": treatment_fg_iou,
@@ -204,7 +241,8 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
             % (args.fold, oracle_miou, oracle_fb_iou.item())
         )
         os.makedirs(args.output_dir, exist_ok=True)
-        metrics_path = join(args.output_dir, args.pmc_metrics_file)
+        if metrics_path is None:
+            metrics_path = join(args.output_dir, args.pmc_metrics_file)
         metrics_payload = {
             "schema_version": 1,
             "experiment_id": "EXP-001",
@@ -214,6 +252,25 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
             "seed": args.seed,
             "pmc_mode": args.pmc_mode,
             "pmc_checkpoint": args.pmc_checkpoint,
+            "episode_manifest": args.episode_manifest,
+            "episode_partition": args.episode_partition,
+            "provenance": provenance
+            or {
+                "base_checkpoint": args.resume,
+                "base_checkpoint_sha256": (
+                    file_sha256(args.resume) if args.resume else None
+                ),
+                "pmc_checkpoint_sha256": (
+                    file_sha256(args.pmc_checkpoint)
+                    if args.pmc_checkpoint
+                    else None
+                ),
+                "episode_manifest_sha256": (
+                    file_sha256(args.episode_manifest)
+                    if args.episode_manifest
+                    else None
+                ),
+            },
             "summary": {
                 "baseline_b0_miou": baseline_miou,
                 "treatment_miou": miou,
@@ -229,7 +286,19 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         print(f"Wrote paired EXP-001 episode metrics to {metrics_path}")
     print('==================== Finished Testing ====================')
 
-    return miou
+    return {
+        "treatment_miou": miou,
+        "treatment_fb_iou": float(fb_iou.item()),
+        "baseline_miou": baseline_miou if baseline_meter is not None else None,
+        "baseline_fb_iou": (
+            float(baseline_fb_iou.item()) if baseline_meter is not None else None
+        ),
+        "oracle_miou": oracle_miou if oracle_meter is not None else None,
+        "oracle_fb_iou": (
+            float(oracle_fb_iou.item()) if oracle_meter is not None else None
+        ),
+        "metrics_path": metrics_path if baseline_meter is not None else None,
+    }
 
 
 if __name__ == '__main__':

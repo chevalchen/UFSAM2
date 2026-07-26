@@ -10,25 +10,57 @@ from tqdm import tqdm
 
 import opts
 from datasets import build_dataset
+from inference_fss import eval_fss
 from models.sansa.post_memory_calibration import load_post_memory_calibrator_checkpoint
 from models.sansa.sansa import build_sansa
 from util.commons import make_deterministic, setup_logging
+from util.checkpoint_validation import validate_sansa_base_state
+from util.episode_manifest import (
+    EpisodeReplayDataset,
+    file_sha256,
+    load_episode_manifest,
+)
 from util.promptable_utils import build_prompt_dict
 
 
-def _load_base_checkpoint(model: nn.Module, checkpoint_path: str) -> None:
+def _load_base_checkpoint(model: nn.Module, checkpoint_path: str) -> dict:
+    """Load a SANSA full-model or adapter-only checkpoint safely.
+
+    Official SANSA training checkpoints contain only adapter parameters. Missing
+    frozen SAM2 parameters are therefore expected, while missing configured
+    adapter parameters, unknown keys, shape mismatches, or pre-existing AV-PMC
+    parameters are hard errors.
+    """
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state = checkpoint.get("model", checkpoint.get("state_dict", checkpoint))
     if not isinstance(state, dict):
         raise ValueError(f"Unsupported SANSA checkpoint format: {checkpoint_path}")
-    if state and all(key.startswith("module.") for key in state):
-        state = {key[len("module."):]: value for key, value in state.items()}
-    missing, unexpected = model.load_state_dict(state, strict=False)
-    missing = [key for key in missing if not key.startswith("post_memory_calibrator.")]
-    if missing or unexpected:
+
+    model_state = model.state_dict()
+    loadable_state, expected_adapter_keys = validate_sansa_base_state(
+        model_state,
+        state,
+    )
+    incompatible = model.load_state_dict(loadable_state, strict=False)
+    if incompatible.unexpected_keys:
         raise RuntimeError(
-            f"SANSA checkpoint mismatch. Missing non-PMC keys: {missing}; unexpected keys: {unexpected}"
+            f"Unexpected keys after SANSA checkpoint load: {incompatible.unexpected_keys}"
         )
+    loaded_adapter_keys = sorted(
+        key
+        for key in loadable_state
+        if "adapter" in key and key not in incompatible.missing_keys
+    )
+    if loaded_adapter_keys != expected_adapter_keys:
+        raise RuntimeError(
+            "Not every configured SANSA adapter parameter was loaded. "
+            f"Loaded {len(loaded_adapter_keys)}/{len(expected_adapter_keys)}."
+        )
+    print(
+        f"Loaded {len(loaded_adapter_keys)} SANSA adapter tensors from "
+        f"{checkpoint_path}; frozen SAM2 parameters came from the configured base weights."
+    )
+    return checkpoint
 
 
 def _as_binary_mask(mask: torch.Tensor, size: tuple[int, int], device: torch.device) -> torch.Tensor:
@@ -151,19 +183,28 @@ def main(args: argparse.Namespace) -> None:
         raise ValueError("Use --batch_size 1 for the staged AV-PMC trainer.")
     if args.pmc_train_stage in {"spatial", "gain"} and not args.pmc_checkpoint:
         raise ValueError("The spatial and gain stages require the preceding --pmc_checkpoint.")
+    if not args.episode_manifest:
+        raise ValueError(
+            "--episode_manifest is required. Random, untracked episodes are not "
+            "permitted for EXP-001 training."
+        )
 
     setup_logging(args.output_dir, console="info", rank=0)
     make_deterministic(args.seed)
-    stage_mode = {"operator": "operator", "spatial": "operator", "gain": "spatial"}[
+    training_mode = {"operator": "operator", "spatial": "operator", "gain": "spatial"}[
         args.pmc_train_stage
     ]
+    validation_mode = {"operator": "operator", "spatial": "spatial", "gain": "gated"}[
+        args.pmc_train_stage
+    ]
+    args.pmc_mode = training_mode
     model = build_sansa(
         args.sam2_version,
         args.adaptformer_stages,
         args.channel_factor,
         args.device,
         post_memory_calibration=True,
-        pmc_mode=stage_mode,
+        pmc_mode=training_mode,
         pmc_projection_dim=args.pmc_projection_dim,
         pmc_hidden_dim=args.pmc_hidden_dim,
         pmc_residual_scale=args.pmc_residual_scale,
@@ -190,7 +231,32 @@ def main(args: argparse.Namespace) -> None:
         raise RuntimeError(f"No trainable parameters for AV-PMC stage {args.pmc_train_stage}.")
     optimizer = torch.optim.AdamW(trainable, lr=args.lr, weight_decay=args.weight_decay)
 
-    dataset = build_dataset(args.dataset_file, image_set=args.pmc_image_set, args=args)
+    manifest = load_episode_manifest(args.episode_manifest)
+    base_dataset = build_dataset(
+        args.dataset_file,
+        image_set=manifest["source_split"],
+        args=args,
+    )
+    dataset = EpisodeReplayDataset(
+        base_dataset,
+        manifest,
+        args.pmc_train_partition,
+        data_root=args.data_root,
+        expected_dataset=args.dataset_file,
+        expected_fold=args.fold,
+        expected_shots=args.shots,
+        expected_source_split=manifest["source_split"],
+    )
+    validation_dataset = EpisodeReplayDataset(
+        base_dataset,
+        manifest,
+        args.pmc_validation_partition,
+        data_root=args.data_root,
+        expected_dataset=args.dataset_file,
+        expected_fold=args.fold,
+        expected_shots=args.shots,
+        expected_source_split=manifest["source_split"],
+    )
     loader = DataLoader(
         dataset,
         batch_size=1,
@@ -198,10 +264,17 @@ def main(args: argparse.Namespace) -> None:
         num_workers=args.num_workers,
     )
     os.makedirs(args.output_dir, exist_ok=True)
+    manifest_sha256 = file_sha256(args.episode_manifest)
+    base_checkpoint_sha256 = file_sha256(args.resume)
+    preceding_pmc_sha256 = (
+        file_sha256(args.pmc_checkpoint) if args.pmc_checkpoint else None
+    )
 
     global_step = 0
+    best_validation_miou = float("-inf")
     for epoch in range(args.epochs):
         running_loss = 0.0
+        epoch_steps = 0
         progress = tqdm(loader, desc=f"AV-PMC {args.pmc_train_stage} epoch {epoch + 1}")
         for batch in progress:
             images, prompt_dict = _episode_inputs(batch, args, model)
@@ -225,26 +298,73 @@ def main(args: argparse.Namespace) -> None:
             optimizer.step()
 
             global_step += 1
+            epoch_steps += 1
             running_loss += float(loss.detach().item())
-            progress.set_postfix(loss=f"{running_loss / global_step:.4f}", **diagnostics)
+            progress.set_postfix(loss=f"{running_loss / epoch_steps:.4f}", **diagnostics)
             if args.pmc_max_steps is not None and global_step >= args.pmc_max_steps:
                 break
+
+        args.episode_partition = args.pmc_validation_partition
+        model.post_memory_calibrator.set_mode(validation_mode)
+        args.pmc_mode = validation_mode
+        validation_metrics_path = join(
+            args.output_dir,
+            f"pmc_{args.pmc_train_stage}_validation_epoch{epoch + 1}.json",
+        )
+        validation_summary = eval_fss(
+            model,
+            args,
+            dataset=validation_dataset,
+            metrics_path=validation_metrics_path,
+            provenance={
+                "model_state": f"in_memory_after_epoch_{epoch + 1}",
+                "base_checkpoint": args.resume,
+                "base_checkpoint_sha256": base_checkpoint_sha256,
+                "preceding_pmc_checkpoint": args.pmc_checkpoint or None,
+                "preceding_pmc_checkpoint_sha256": preceding_pmc_sha256,
+                "episode_manifest_sha256": manifest_sha256,
+            },
+        )
+        model.eval()
+        model.post_memory_calibrator.set_mode(training_mode)
+        model.post_memory_calibrator.train()
+        args.pmc_mode = training_mode
+        validation_miou = float(validation_summary["treatment_miou"])
+        is_best = validation_miou > best_validation_miou
+        best_validation_miou = max(best_validation_miou, validation_miou)
 
         checkpoint_path = join(
             args.output_dir,
             f"pmc_{args.pmc_train_stage}_epoch{epoch + 1}.pth",
         )
-        torch.save(
-            {
-                "post_memory_calibrator": model.post_memory_calibrator.state_dict(),
-                "stage": args.pmc_train_stage,
-                "epoch": epoch,
-                "global_step": global_step,
-                "args": vars(args),
-            },
-            checkpoint_path,
-        )
+        checkpoint_payload = {
+            "post_memory_calibrator": model.post_memory_calibrator.state_dict(),
+            "stage": args.pmc_train_stage,
+            "epoch": epoch,
+            "global_step": global_step,
+            "args": vars(args),
+            "base_checkpoint_sha256": base_checkpoint_sha256,
+            "preceding_pmc_checkpoint_sha256": preceding_pmc_sha256,
+            "episode_manifest_sha256": manifest_sha256,
+            "episode_manifest_partition": args.pmc_train_partition,
+            "validation_partition": args.pmc_validation_partition,
+            "training_mode": training_mode,
+            "validation_mode": validation_mode,
+            "validation_summary": validation_summary,
+            "best_validation_miou": best_validation_miou,
+        }
+        torch.save(checkpoint_payload, checkpoint_path)
         print(f"Saved {checkpoint_path}")
+        if is_best:
+            best_path = join(
+                args.output_dir,
+                f"pmc_{args.pmc_train_stage}_best.pth",
+            )
+            torch.save(checkpoint_payload, best_path)
+            print(
+                f"Saved best {args.pmc_train_stage} checkpoint to {best_path} "
+                f"(base-validation mIoU={validation_miou:.2f})"
+            )
         if args.pmc_max_steps is not None and global_step >= args.pmc_max_steps:
             break
 
@@ -254,7 +374,9 @@ if __name__ == "__main__":
         "Train AV-PMC in operator, spatial-benefit, or action-value stages",
         parents=[opts.get_args_parser()],
     )
-    parser.add_argument("--pmc_image_set", type=str, default="train", help="Dataset split used for the current AV-PMC stage.")
+    parser.add_argument("--pmc_image_set", type=str, default="train", help="Deprecated compatibility alias; the manifest source_split is authoritative.")
+    parser.add_argument("--pmc_train_partition", type=str, default="train", choices=["train"], help="Manifest partition used for optimization.")
+    parser.add_argument("--pmc_validation_partition", type=str, default="validation", choices=["validation"], help="Held-out manifest partition used for best-checkpoint selection.")
     parser.add_argument("--pmc_dense_sign_weight", type=float, default=0.25, help="Weight of positive dense-benefit sign supervision.")
     parser.add_argument("--pmc_max_steps", type=int, default=None, help="Optional smoke-test cap on optimizer steps.")
     args = parser.parse_args()

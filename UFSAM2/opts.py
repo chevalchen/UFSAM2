@@ -60,5 +60,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pmc_gate_temperature", type=float, default=0.25, help="Spatial gate temperature.")
     parser.add_argument("--pmc_train_stage", type=str, default=None, choices=["operator", "spatial", "gain"], help="Train exactly one AV-PMC stage.")
     parser.add_argument("--pmc_metrics_file", type=str, default="pmc_paired_metrics.json", help="Per-episode B0/treatment metrics written under output_dir.")
+    parser.add_argument("--episode_manifest", type=str, default="", help="Tracked deterministic episode manifest.")
+    parser.add_argument("--episode_partition", type=str, default="validation", choices=["train", "calibration", "validation"], help="Manifest partition used for evaluation.")
 
     return parser
