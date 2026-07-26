@@ -12,6 +12,14 @@ module and matched `B0`/treatment/`B8` output needed for Stage A. The complete
 matched-budget `B2-B7` policy harness is intentionally not yet implemented, so
 this implementation is not a frozen formal experiment by itself.
 
+Host-side preflight infrastructure was added in commit `e89a189`. The staged
+trainer now accepts official adapter-only SANSA checkpoints under an explicit
+adapter-key/shape contract, requires a tracked identity-checked episode
+manifest, replays mutually disjoint train/calibration/validation partitions,
+and selects the best stage checkpoint by held-out validation mIoU. This commit
+still requires a real PyTorch/checkpoint/data smoke on the execution server
+before it can become the formal run SHA.
+
 ## 1. Final Design Decision
 
 Implement **AV-PMC**, a selective two-pass module:
