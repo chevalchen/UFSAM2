@@ -1,5 +1,7 @@
 """Deterministic, identity-checked episode manifests for formal FSS runs."""
 
+from __future__ import annotations
+
 from contextlib import contextmanager
 import hashlib
 import json

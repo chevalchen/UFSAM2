@@ -1,5 +1,7 @@
 """Pure validation helpers for SANSA base checkpoints."""
 
+from __future__ import annotations
+
 from typing import Any, Mapping
 
 
