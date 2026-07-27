@@ -244,6 +244,23 @@ where \(C_{2nd}\) is the measured cost of the dense calibrator and second decode
 
 Keep SANSA, SAM2, and existing adapters frozen for the first attribution experiment.
 
+### Operational Run Cadence
+
+This scheduling policy changes execution granularity only; it does not change
+the frozen scientific contract.
+
+The research owner normally reviews or launches server jobs at 12:00 and 21:00
+Asia/Shanghai. Prefer task packets expected to finish in approximately 6–9
+hours. Two GPUs may run two independent configurations concurrently. Short
+independent runs may be chained by one launcher, but every run must keep its
+own immutable run ID, config, manifest, metrics, checkpoint, and artifact
+directory.
+
+Do not shorten frozen training exposure merely to fit a review window. If a
+required run is longer, allow it to continue and report its status at the next
+review window. Scheduling must never change matched episodes, optimization
+steps, validation frequency, seeds, controls, or `KEEP`/`DROP` criteria.
+
 ### Stage A: Establish repair headroom
 
 1. Disable hflip TTA, BRM, support-logit weighting, and memory-to-point prompting.
@@ -351,6 +368,19 @@ High entropy alone is not sufficient evidence.
 3. Report mIoU, FB-IoU, and boundary IoU/F-score.
 
 Keep strict FSS and generalist part results in separate tables and claims. If PACO data is used during training, label PACO-Part as in-domain.
+
+### Thirty-Day Portfolio Screen
+
+The first thirty-day pass prioritizes the causal trunk of all three candidate
+modules. For each module, establish operator headroom first and train the
+selector only when the corresponding oracle indicates usable headroom.
+
+Defer secondary part-track evaluation, extensive qualitative analysis,
+nonessential ablations, and publication-level multi-seed confirmation until
+AV-PMC, mask post-correction, and support-memory fusion have each received a
+held-out screening result. A one-seed screen may rank follow-up work or trigger
+an existing stop rule, but it cannot be labeled `KEEP` or final `VERIFIED`
+evidence.
 
 ## 14. Go/No-Go Rules
 
