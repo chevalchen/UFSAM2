@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "evidence_label": "FROZEN_INPUT_CANDIDATE",
+  "evidence_label": "FROZEN_STAGE_A_INPUT",
   "experiment_id": "EXP-001",
   "stage": {
     "id": "operator",
@@ -9,6 +9,8 @@
   "candidate_generation_git_sha": "c0568948263e99e783a6c5842931c6fef7b23a19",
   "dataset": {
     "name": "coco",
+    "data_root": "/data6/chensq/datasets",
+    "source_split": "train",
     "fold": 0,
     "shots": 1,
     "prompt": "mask",
@@ -37,6 +39,7 @@
     "channel_factor": 0.3
   },
   "training": {
+    "pmc_train_stage": "operator",
     "hidden_dim": 128,
     "batch_size": 1,
     "epochs": 10,
@@ -45,13 +48,23 @@
     "weight_decay": 0.0,
     "clip_max_norm": 0.1,
     "threshold": 0.5,
+    "spatial_threshold": 0.0,
+    "episode_threshold": 0.0,
     "gate_temperature": 0.25,
     "dense_sign_weight": 0.25,
-    "num_workers": 0
+    "num_workers": 0,
+    "device": "cuda",
+    "no_distributed": true
   },
   "execution": {
+    "conda_env": "sam2coco",
+    "repository_workdir": "UFSAM2",
+    "require_clean_detached_worktree": true,
+    "run_manifest_script": ".agents/skills/manage-ufs-research/scripts/capture_run_manifest.py",
+    "run_manifest_required_before_each_run": true,
     "gpu_policy": "one independent run per GPU",
     "artifact_directory": {
+      "root": "/data6/chensq/UFSAM2_runs/EXP-001/stage_a",
       "location": "outside the Git repository",
       "immutable": true,
       "one_directory_per_run": true
