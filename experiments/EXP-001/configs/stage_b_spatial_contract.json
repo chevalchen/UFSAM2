@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "evidence_label": "FROZEN_STAGE_B_RESEARCH_CONTRACT",
+  "execution_ready": false,
+  "execution_blocker": "The host-side hard top-area policy and complete matched-control harness must be implemented and verified before a formal execution SHA can be frozen.",
+  "experiment_id": "EXP-001",
+  "stage": {
+    "id": "spatial",
+    "name": "Stage B"
+  },
+  "hypothesis": "With the Stage A repair operator frozen, a dense action-specific benefit score selects repair locations that improve held-out segmentation more than random, mask-entropy, and generic current-error risk scores at the same activated area and decoder compute.",
+  "dataset": {
+    "name": "coco",
+    "data_root": "/data6/chensq/datasets",
+    "source_split": "train",
+    "fold": 0,
+    "shots": 1,
+    "prompt": "mask",
+    "training_seed": 0
+  },
+  "episode_manifest": {
+    "path": "experiments/EXP-001/episodes/coco_fold0_1shot_train1200_cal600_val600_seed0.json",
+    "sha256": "c0abf8545a07800e4f56cb4f83afd3738553dda87d1223855d46891156a23de9",
+    "partitions": {
+      "train": {
+        "count": 1200,
+        "use": "optimize the spatial head"
+      },
+      "calibration": {
+        "count": 600,
+        "use": "select the locked spatial area budget"
+      },
+      "validation": {
+        "count": 600,
+        "use": "checkpoint selection and held-out Stage B decision"
+      }
+    }
+  },
+  "base_model": {
+    "official_adapter": {
+      "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/coco-20i-4/adapter_coco_fold0.pth",
+      "sha256": "b02b96f30ee558c37ef4fc5f889e90772dafb117e42b3fcf0945000220bc57e5"
+    },
+    "sam2_large_base_weight_sha256": "7442e4e9b732a508f80e141e7c2913437a3610ee0c77381a66658c3a445df87b",
+    "sam2_version": "large",
+    "adaptformer_stages": [
+      2,
+      3
+    ],
+    "channel_factor": 0.3
+  },
+  "frozen_operator": {
+    "stage_a_run_id": "stage_a_p32_s020_seed0",
+    "projection_dim": 32,
+    "hidden_dim": 128,
+    "residual_scale": 0.2,
+    "checkpoint_path": "/data6/chensq/UFSAM2_runs/EXP-001/stage_a/stage_a_p32_s020_seed0/pmc_operator_best.pth",
+    "checkpoint_sha256": "c7a5860a694d047cd22b2070732ace877d128c3a780b8af0c25eebe1c2307819",
+    "checkpoint_epoch": 6,
+    "trainable": false
+  },
+  "teacher_target": {
+    "name": "signed_dense_always_on_bce_reduction",
+    "evidence_label": "ORACLE_TRAINING_TARGET",
+    "baseline_logits": "M0 low-resolution selected-mask logits from the unchanged first decoder",
+    "repaired_logits": "M_all low-resolution selected-mask logits from the same episode with the frozen operator active at every feature-grid location",
+    "query_target_resize": "nearest-neighbor to the decoder-logit resolution",
+    "definition": "u_star = clamp(BCEWithLogits(M0, Y) - BCEWithLogits(M_all, Y), -1.0, 1.0)",
+    "feature_grid_resize": "area interpolation from decoder-logit resolution to the spatial-head grid",
+    "positive_label": "u_star > 0",
+    "gradient_contract": "M0, M_all, the frozen operator, SANSA, SAM2, and adapters are detached; gradients update only the spatial head",
+    "interpretation_limit": "This is a dense proxy for the local benefit of an always-on repair, not an exact per-feature-cell causal effect."
+  },
+  "spatial_head_training": {
+    "trainable_component": "spatial_head_only",
+    "pmc_train_stage": "spatial",
+    "batch_size": 1,
+    "epochs": 10,
+    "max_optimizer_steps": 12000,
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0,
+    "clip_max_norm": 0.1,
+    "gate_temperature_for_sign_loss": 0.25,
+    "loss": "SmoothL1(spatial_score, u_star) + 0.25 * BCEWithLogits(spatial_score / 0.25, 1[u_star > 0])",
+    "best_checkpoint_rule": "highest validation B2 mIoU at the preregistered 0.25 area budget; exact ties choose the earlier epoch"
+  },
+  "hard_area_policy": {
+    "training_gate": "soft sigmoid gate is permitted only while optimizing the dense score",
+    "locked_evaluation_gate": "hard deterministic top-area selection on the post-memory feature grid",
+    "area_budgets": [
+      0.1,
+      0.25,
+      0.5,
+      1.0
+    ],
+    "selected_cell_count": "K = max(1, round(area_budget * H * W))",
+    "tie_break": "stable flattened spatial index",
+    "budget_selection_partition": "calibration",
+    "budget_selection_rule": "Choose the smallest budget whose B2 calibration mIoU is within 0.2 point of the maximum B2 calibration mIoU over the frozen grid.",
+    "validation_rule": "Report every frozen budget, and use only the calibration-selected budget as the Stage B decision row."
+  },
+  "matched_controls": [
+    {
+      "id": "B0",
+      "score": "none",
+      "gate": "no repair",
+      "purpose": "matched SANSA baseline"
+    },
+    {
+      "id": "B1",
+      "score": "none",
+      "gate": "all feature-grid locations",
+      "purpose": "frozen operator reference"
+    },
+    {
+      "id": "B2",
+      "score": "learned signed action-specific dense benefit",
+      "gate": "hard top-area",
+      "purpose": "Stage B treatment"
+    },
+    {
+      "id": "B3",
+      "score": "deterministic episode-keyed random score",
+      "gate": "hard equal-area",
+      "random_seeds": [
+        0,
+        1,
+        2
+      ],
+      "purpose": "chance selection control"
+    },
+    {
+      "id": "B4E",
+      "score": "baseline selected-mask Bernoulli entropy",
+      "gate": "hard equal-area",
+      "purpose": "generic predictive-uncertainty control"
+    },
+    {
+      "id": "B4R",
+      "score": "learned generic current-error risk",
+      "gate": "hard equal-area",
+      "teacher": "clamp(BCEWithLogits(M0, Y), 0.0, 1.0), area-resized to the spatial-head grid",
+      "fairness": "same spatial-head architecture, evidence, initialization policy, train episodes, optimizer, seed, epochs, and checkpoint rule as B2; only the teacher target changes",
+      "purpose": "risk-versus-action-value control"
+    },
+    {
+      "id": "B7S",
+      "score": "negative learned B2 score",
+      "gate": "hard equal-area bottom-score selection",
+      "purpose": "score-ordering negative control"
+    },
+    {
+      "id": "B8S",
+      "score": "u_star",
+      "gate": "hard equal-area top-score selection",
+      "evidence_label": "ORACLE",
+      "purpose": "dense-teacher proxy upper bound at matched area"
+    }
+  ],
+  "primary_metrics": {
+    "segmentation": "paired episode mIoU",
+    "primary_selection_effect": "B2 - mean(B3 seed 0, seed 1, seed 2) at the calibration-selected area budget",
+    "primary_specificity_effect": "B2 - B4R at the calibration-selected area budget",
+    "additional_specificity_effect": "B2 - B4E at the calibration-selected area budget",
+    "bootstrap": {
+      "method": "paired episode bootstrap over the 600 validation episode identities",
+      "resamples": 10000,
+      "seed": 0,
+      "interval": "two-sided percentile 95%",
+      "random_control_aggregation": "average each episode's B3 metric over the three frozen random seeds before bootstrapping"
+    }
+  },
+  "guardrails_and_diagnostics": {
+    "required": [
+      "B2 - B0 paired mIoU and FB-IoU",
+      "B2 - B1 paired mIoU",
+      "B8S - B2 headroom",
+      "negative-repair episode rate",
+      "worst-decile episode IoU",
+      "actual activated-area ratio",
+      "dense AUPRC for u_star > 0"
+    ],
+    "area_tolerance": "The selected cell count must equal K for every non-baseline row and episode.",
+    "full_area_sanity": "At area budget 1.0, B2, B3, B4E, B4R, B7S, and B8S must reproduce B1 masks and aggregate metrics exactly.",
+    "quality_guardrails": "At the selected budget, B2 FB-IoU must not be more than 0.2 point below B0, and B2 worst-decile episode IoU must not be more than 0.5 point below B0."
+  },
+  "stage_decision": {
+    "pass_to_stage_c": [
+      "The calibration-selected area budget is less than 1.0.",
+      "B2 - B0 is at least +0.5 mIoU point or its paired 95% bootstrap confidence-interval lower bound is greater than 0.",
+      "The paired 95% bootstrap confidence-interval lower bounds for B2 - mean(B3), B2 - B4E, and B2 - B4R are all greater than 0.",
+      "All quality, area-matching, provenance, and full-area sanity guardrails pass."
+    ],
+    "drop_stage_b_and_stop_exp_001": [
+      "B2 has a non-positive point effect versus B0 at the selected budget.",
+      "B2 has a non-positive point selection effect versus mean(B3), B4E, or B4R at the selected budget.",
+      "The calibration-selected budget is 1.0, so the learned spatial score provides no spatial selection.",
+      "A preregistered quality guardrail fails and the failure is reproduced after a provenance-preserving rerun."
+    ],
+    "inconclusive": [
+      "Every required point effect is positive but one or more required confidence intervals include 0 and B2 - B0 is below +0.5 mIoU point.",
+      "A required matched control, hash, immutable artifact, or per-episode output is missing.",
+      "A software or environment failure prevents a complete matched comparison."
+    ],
+    "revise_as_new_experiment_id": [
+      "Continuing requires changing the frozen operator, teacher definition, spatial-head architecture, area-budget grid, data protocol, primary metric, or decision threshold."
+    ],
+    "scope_limit": "A Stage B pass authorizes Stage C design and implementation only. It is not an EXP-001 KEEP decision and does not establish episode-level action-value routing."
+  },
+  "execution": {
+    "formal_git_sha": "TBD_AFTER_HOST_IMPLEMENTATION_AND_VERIFICATION",
+    "require_clean_detached_worktree": true,
+    "run_manifest_required_before_each_run": true,
+    "artifact_root": "/data6/chensq/UFSAM2_runs/EXP-001/stage_b",
+    "immutable_one_directory_per_run": true
+  },
+  "disabled_interventions": {
+    "hflip": true,
+    "memory_to_point": true,
+    "brm": true,
+    "support_aggregation": true,
+    "episode_action_value_gate": true
+  }
+}
