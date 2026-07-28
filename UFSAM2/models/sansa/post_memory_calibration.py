@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -6,6 +8,7 @@ from torch import Tensor, nn
 import torch.nn.functional as F
 
 from models.sansa.model_utils import DecoderOutput
+from util.stage_b_spatial import hard_top_area_gate, validate_area_budget
 
 
 def load_post_memory_calibrator_checkpoint(
@@ -57,6 +60,9 @@ class PostMemoryCalibrationOutput:
     spatial_benefit: Tensor
     spatial_gate: Tensor
     residual: Tensor
+    spatial_head_input: Tensor
+    mask_entropy: Tensor
+    multimask_disagreement: Tensor
 
     @property
     def applied(self) -> bool:
@@ -81,6 +87,7 @@ class PostMemoryFeatureCalibrator(nn.Module):
         residual_scale: float = 0.1,
         mode: str = "gated",
         spatial_threshold: float = 0.0,
+        spatial_area_budget: Optional[float] = None,
         episode_threshold: float = 0.0,
         gate_temperature: float = 0.25,
         dropout: float = 0.1,
@@ -99,6 +106,11 @@ class PostMemoryFeatureCalibrator(nn.Module):
         self.residual_scale = float(residual_scale)
         self.mode = mode
         self.spatial_threshold = float(spatial_threshold)
+        self.spatial_area_budget = (
+            validate_area_budget(spatial_area_budget)
+            if spatial_area_budget is not None
+            else None
+        )
         self.episode_threshold = float(episode_threshold)
         self.gate_temperature = float(gate_temperature)
 
@@ -200,9 +212,11 @@ class PostMemoryFeatureCalibrator(nn.Module):
             baseline_output,
             evidence.shape[-2:],
         )
-        spatial_benefit = self.spatial_head(
-            torch.cat((evidence, mask_entropy, multimask_disagreement), dim=1)
+        spatial_head_input = torch.cat(
+            (evidence, mask_entropy, multimask_disagreement),
+            dim=1,
         )
+        spatial_benefit = self.spatial_head(spatial_head_input)
         predicted_delta_iou = self._predict_delta_iou(
             evidence,
             baseline_output,
@@ -215,9 +229,15 @@ class PostMemoryFeatureCalibrator(nn.Module):
             episode_gate = torch.ones_like(predicted_delta_iou, dtype=torch.bool)
             spatial_gate = torch.ones_like(spatial_benefit)
         else:
-            spatial_gate = torch.sigmoid(
-                (spatial_benefit - self.spatial_threshold) / self.gate_temperature
-            )
+            if self.spatial_area_budget is not None:
+                spatial_gate = hard_top_area_gate(
+                    spatial_benefit,
+                    self.spatial_area_budget,
+                )
+            else:
+                spatial_gate = torch.sigmoid(
+                    (spatial_benefit - self.spatial_threshold) / self.gate_temperature
+                )
             if self.mode == "spatial":
                 episode_gate = torch.ones_like(predicted_delta_iou, dtype=torch.bool)
             else:
@@ -235,6 +255,9 @@ class PostMemoryFeatureCalibrator(nn.Module):
             spatial_benefit=spatial_benefit,
             spatial_gate=spatial_gate,
             residual=residual,
+            spatial_head_input=spatial_head_input,
+            mask_entropy=mask_entropy,
+            multimask_disagreement=multimask_disagreement,
         )
 
     def _feature_evidence(self, query_feature: Tensor, memory_feature: Tensor) -> Tensor:

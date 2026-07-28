@@ -122,6 +122,7 @@ def _stage_loss(
     device: torch.device,
     sign_weight: float,
     gate_temperature: float,
+    spatial_target: str,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     records = outputs.get("post_memory_calibration", [])
     if len(records) != 1:
@@ -143,10 +144,18 @@ def _stage_loss(
         baseline_pixel_loss = F.binary_cross_entropy_with_logits(
             baseline_logits.detach(), target, reduction="none"
         )
-        repaired_pixel_loss = F.binary_cross_entropy_with_logits(
-            final_logits.detach(), target, reduction="none"
-        )
-        dense_target = (baseline_pixel_loss - repaired_pixel_loss).clamp(-1.0, 1.0)
+        if spatial_target == "benefit":
+            repaired_pixel_loss = F.binary_cross_entropy_with_logits(
+                final_logits.detach(), target, reduction="none"
+            )
+            dense_target = (baseline_pixel_loss - repaired_pixel_loss).clamp(
+                -1.0,
+                1.0,
+            )
+        elif spatial_target == "risk":
+            dense_target = baseline_pixel_loss.clamp(0.0, 1.0)
+        else:
+            raise ValueError(f"Unknown Stage B spatial target: {spatial_target}")
         score = record["spatial_benefit"]
         dense_target = F.interpolate(dense_target, size=score.shape[-2:], mode="area")
         regression = F.smooth_l1_loss(score, dense_target)
@@ -185,6 +194,10 @@ def main(args: argparse.Namespace) -> None:
         raise ValueError("Use --batch_size 1 for the staged AV-PMC trainer.")
     if args.pmc_train_stage in {"spatial", "gain"} and not args.pmc_checkpoint:
         raise ValueError("The spatial and gain stages require the preceding --pmc_checkpoint.")
+    if args.pmc_train_stage == "spatial" and args.pmc_spatial_area_budget is None:
+        raise ValueError(
+            "Stage B checkpoint selection requires --pmc_spatial_area_budget."
+        )
     if not args.episode_manifest:
         raise ValueError(
             "--episode_manifest is required. Random, untracked episodes are not "
@@ -211,6 +224,7 @@ def main(args: argparse.Namespace) -> None:
         pmc_hidden_dim=args.pmc_hidden_dim,
         pmc_residual_scale=args.pmc_residual_scale,
         pmc_spatial_threshold=args.pmc_spatial_threshold,
+        pmc_spatial_area_budget=args.pmc_spatial_area_budget,
         pmc_episode_threshold=args.pmc_episode_threshold,
         pmc_gate_temperature=args.pmc_gate_temperature,
         pmc_train_stage=args.pmc_train_stage,
@@ -292,6 +306,7 @@ def main(args: argparse.Namespace) -> None:
                 device,
                 args.pmc_dense_sign_weight,
                 args.pmc_gate_temperature,
+                args.pmc_spatial_target,
             )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -352,6 +367,7 @@ def main(args: argparse.Namespace) -> None:
             "validation_partition": args.pmc_validation_partition,
             "training_mode": training_mode,
             "validation_mode": validation_mode,
+            "spatial_target": args.pmc_spatial_target,
             "validation_summary": validation_summary,
             "best_validation_miou": best_validation_miou,
         }
@@ -380,6 +396,7 @@ if __name__ == "__main__":
     parser.add_argument("--pmc_train_partition", type=str, default="train", choices=["train"], help="Manifest partition used for optimization.")
     parser.add_argument("--pmc_validation_partition", type=str, default="validation", choices=["validation"], help="Held-out manifest partition used for best-checkpoint selection.")
     parser.add_argument("--pmc_dense_sign_weight", type=float, default=0.25, help="Weight of positive dense-benefit sign supervision.")
+    parser.add_argument("--pmc_spatial_target", type=str, default="benefit", choices=["benefit", "risk"], help="Stage B teacher: action-specific benefit or generic current-error risk.")
     parser.add_argument("--pmc_max_steps", type=int, default=None, help="Optional smoke-test cap on optimizer steps.")
     args = parser.parse_args()
     args.output_dir = join(args.output_dir, args.name_exp)

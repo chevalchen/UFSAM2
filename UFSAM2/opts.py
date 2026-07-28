@@ -56,6 +56,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pmc_hidden_dim", type=int, default=128, help="AV-PMC hidden channel width.")
     parser.add_argument("--pmc_residual_scale", type=float, default=0.1, help="Maximum feature-residual scale.")
     parser.add_argument("--pmc_spatial_threshold", type=float, default=0.0, help="Dense benefit threshold before gating.")
+    parser.add_argument("--pmc_spatial_area_budget", type=float, default=None, help="Optional hard top-area budget for the spatial gate.")
     parser.add_argument("--pmc_episode_threshold", type=float, default=0.0, help="Predicted delta-IoU threshold for applying repair.")
     parser.add_argument("--pmc_gate_temperature", type=float, default=0.25, help="Spatial gate temperature.")
     parser.add_argument("--pmc_train_stage", type=str, default=None, choices=["operator", "spatial", "gain"], help="Train exactly one AV-PMC stage.")

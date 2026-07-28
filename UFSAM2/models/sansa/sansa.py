@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from typing import Any, Dict, List, Tuple
 
@@ -28,6 +30,7 @@ class SANSA(nn.Module):
         pmc_hidden_dim: int = 128,
         pmc_residual_scale: float = 0.1,
         pmc_spatial_threshold: float = 0.0,
+        pmc_spatial_area_budget: float | None = None,
         pmc_episode_threshold: float = 0.0,
         pmc_gate_temperature: float = 0.25,
     ):
@@ -42,6 +45,7 @@ class SANSA(nn.Module):
                 residual_scale=pmc_residual_scale,
                 mode=pmc_mode,
                 spatial_threshold=pmc_spatial_threshold,
+                spatial_area_budget=pmc_spatial_area_budget,
                 episode_threshold=pmc_episode_threshold,
                 gate_temperature=pmc_gate_temperature,
             )
@@ -256,6 +260,14 @@ class SANSA(nn.Module):
         target_out.spatial_benefit = calibration.spatial_benefit
         target_out.spatial_gate = calibration.spatial_gate
         target_out.calibration_residual = calibration.residual
+        target_out.calibration_memory_feature = pix_feat_with_mem
+        target_out.calibration_high_res_features = high_res_features
+        target_out.calibration_spatial_head_input = calibration.spatial_head_input
+        target_out.calibration_mask_entropy = calibration.mask_entropy
+        target_out.calibration_multimask_disagreement = (
+            calibration.multimask_disagreement
+        )
+        target_out.calibration_multimask_output = multimask_output
 
         stats = self.post_memory_calibration_stats
         stats["eligible"] += int(calibration.episode_gate.numel())
@@ -289,7 +301,16 @@ class SANSA(nn.Module):
             "episode_gate": decoder_out.calibration_applied,
             "spatial_benefit": decoder_out.spatial_benefit,
             "spatial_gate": decoder_out.spatial_gate,
+            "residual": decoder_out.calibration_residual,
             "residual_norm": residual_norm,
+            "memory_feature": decoder_out.calibration_memory_feature,
+            "high_res_features": decoder_out.calibration_high_res_features,
+            "spatial_head_input": decoder_out.calibration_spatial_head_input,
+            "mask_entropy": decoder_out.calibration_mask_entropy,
+            "multimask_disagreement": (
+                decoder_out.calibration_multimask_disagreement
+            ),
+            "multimask_output": decoder_out.calibration_multimask_output,
             "applied": bool(
                 decoder_out.calibration_applied.detach().bool().any().item()
             ),
@@ -367,6 +388,7 @@ def build_sansa(
     pmc_hidden_dim: int = 128,
     pmc_residual_scale: float = 0.1,
     pmc_spatial_threshold: float = 0.0,
+    pmc_spatial_area_budget: float | None = None,
     pmc_episode_threshold: float = 0.0,
     pmc_gate_temperature: float = 0.25,
     pmc_train_stage: str | None = None,
@@ -401,6 +423,7 @@ def build_sansa(
         pmc_hidden_dim=pmc_hidden_dim,
         pmc_residual_scale=pmc_residual_scale,
         pmc_spatial_threshold=pmc_spatial_threshold,
+        pmc_spatial_area_budget=pmc_spatial_area_budget,
         pmc_episode_threshold=pmc_episode_threshold,
         pmc_gate_temperature=pmc_gate_temperature,
     )

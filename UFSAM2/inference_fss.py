@@ -43,6 +43,7 @@ def main(args: argparse.Namespace) -> float:
         pmc_hidden_dim=args.pmc_hidden_dim,
         pmc_residual_scale=args.pmc_residual_scale,
         pmc_spatial_threshold=args.pmc_spatial_threshold,
+        pmc_spatial_area_budget=args.pmc_spatial_area_budget,
         pmc_episode_threshold=args.pmc_episode_threshold,
         pmc_gate_temperature=args.pmc_gate_temperature,
     )

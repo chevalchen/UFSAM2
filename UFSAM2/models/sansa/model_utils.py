@@ -60,6 +60,12 @@ class DecoderOutput:
     spatial_benefit: Optional[Tensor] = None
     spatial_gate: Optional[Tensor] = None
     calibration_residual: Optional[Tensor] = None
+    calibration_memory_feature: Optional[Tensor] = None
+    calibration_high_res_features: Optional[List[Tensor]] = None
+    calibration_spatial_head_input: Optional[Tensor] = None
+    calibration_mask_entropy: Optional[Tensor] = None
+    calibration_multimask_disagreement: Optional[Tensor] = None
+    calibration_multimask_output: Optional[bool] = None
     masks: Optional[Tensor] = None
 
     def __post_init__(self):
@@ -89,10 +95,18 @@ class DecoderOutput:
             "spatial_benefit",
             "spatial_gate",
             "calibration_residual",
+            "calibration_memory_feature",
+            "calibration_spatial_head_input",
+            "calibration_mask_entropy",
+            "calibration_multimask_disagreement",
         ):
             val = getattr(self, field, None)
             if val is not None:
                 setattr(self, field, val.cpu())
+        if self.calibration_high_res_features is not None:
+            self.calibration_high_res_features = [
+                feature.cpu() for feature in self.calibration_high_res_features
+            ]
         return self
 
 
