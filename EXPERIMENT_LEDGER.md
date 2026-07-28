@@ -14,7 +14,7 @@
 - 权威 SANSA source：upstream provenance 为 nested-repository commit `f562b5642940e08a57e3da2608b804b99af3763b`，加研究负责人批准的 visualization/mask-prompt preprocessing fix；已逐文件核对 `101/101` 个 donor files，并导入 UF-SAM 顶层仓库 commit `000d450`。
 - EXP-001 formal implementation/control SHA：Stage A 为 `7ab637758698ddb19fdacf6c17df1f09446bec26`；Stage B/C 为 `TBD`。
 - EXP-001 主机训练前基础设施 SHA：`e89a189`，Python 3.8 运行时兼容补丁 SHA：`d477b29`；前者修复 SANSA adapter-only checkpoint load contract，并实现 identity-checked episode manifest/replay、互斥 base-train/base-calibration/base-validation partitions、held-out validation 与 best-checkpoint selection，后者确保这些新增入口可在 SANSA 常用的 Python 3.8 环境解析。服务器 data/checkpoint smoke 已通过，Stage A formal inputs 已绑定到上列 formal SHA；Stage B/C 仍未冻结。
-- 当前实验分支：`exp/EXP-001-av-pmc`；AV-PMC minimal integration 已完成本地静态检查，但尚未构成 formal run evidence。
+- 当前实验分支：`exp/EXP-001-av-pmc`；AV-PMC Stage A 已形成 formal run evidence，Stage B/C 尚未冻结。
 - 已接受模块：无
 - 首个候选实验：`EXP-001 — AV-PMC`
 - Legacy implementation snapshot：`e6203d1`
@@ -41,20 +41,42 @@
 
 ## EXP-001 — AV-PMC Action-Value-Gated Post-Memory Feature Calibration
 
-- 状态：EXP-001 总体为 `DRAFT`，其中 `Stage A: FROZEN`；Stage B/C 尚未冻结。Stage A 只允许执行 frozen operator grid 与 matched `B0/B1/B8` headroom study；不要求重跑完整 SANSA paper baseline 表或 standalone default-off equivalence test。
-- 证据标签：`PROPOSED`；当前没有 observed result。
+- 状态：EXP-001 总体为 `DRAFT`；`Stage A: EVALUATED / PASS_TO_STAGE_B`，已选 operator 冻结；Stage B/C 尚未冻结。Stage A 的通过不是 EXP-001 的 `KEEP`，也不证明 action-value gating 主张。
+- 证据标签：Stage A operator/headroom 为 `VERIFIED`；完整 AV-PMC 主张仍为 `PROPOSED`。
 - 设计依据：`POST_MEMORY_FEATURE_CALIBRATION_DESIGN.md`。若账本与该设计文档冲突，以本条冻结后的 experiment contract 和研究规范为准；观察结果后不得回写原合同。
 - 假设：对于同一个 frozen post-memory feature repair operator，预测 action-specific signed gain 的 spatial/episode routing，在 matched intervention rate、activated area 与 second-decoder compute 下，能够比 random routing、entropy/current-risk routing 和 SAM2 confidence routing 更有效地提升 held-out final segmentation。
-- Baseline run/SHA：absolute reference 使用 SANSA paper/official tables；因果 baseline 使用 EXP-001 相同 formal SHA、checkpoint 与 episode manifest 下保存的第一次 baseline decode `M0/B0`。formal SHA 当前为 `TBD`。现有 `e6203d1` 仅作 `HISTORICAL` implementation reference，不自动成为 baseline 或 EXP-001 implementation SHA。
+- Baseline run/SHA：absolute reference 使用 SANSA paper/official tables；因果 baseline 使用 EXP-001 相同 formal SHA、checkpoint 与 episode manifest 下保存的第一次 baseline decode `M0/B0`。Stage A formal SHA 为 `7ab637758698ddb19fdacf6c17df1f09446bec26`；Stage B/C formal SHA 仍为 `TBD`。现有 `e6203d1` 仅作 `HISTORICAL` implementation reference，不自动成为 baseline 或 EXP-001 implementation SHA。
 - 唯一变更因素：在完全相同的 SANSA baseline、frozen repair operator、checkpoint、episodes 与 inference budget 下，只改变 AV-PMC trigger/selection policy。因果矩阵为 `B0` baseline、`B1` always-on、`B2` spatial-only、`B3` matched random、`B4` entropy/risk、`B5` expected-IoU risk、`B6` predicted action value、`B7` shuffled/inverted negative control、`B8` oracle positive gain。
 - 明确非目标：不联合 hflip、BRM、MTP、support aggregation 或其他 repair；不 fine-tune SAM2/SANSA/AdaptFormer；不加入高分辨率 boundary branch、query pseudo-memory、automatic points、Monte Carlo/ensemble；不把 uncertainty calibration/AUROC 当成主结果；不在 novel/test episodes 上调 architecture、threshold 或 budget。
 - 固定实现边界：SANSA/SAM2/adapters 保持冻结；AV-PMC 插在 Memory Attention 之后、mask decoder 之前；baseline decode 后最多复用 cached features 再运行一次 mask decoder；repair operator、spatial benefit head 与 episode action-value head 按 Stage A/B/C 顺序训练并逐阶段冻结。
-- 当前实现状态（2026-07-23，`DIAGNOSTIC_ONLY`）：已在 `exp/EXP-001-av-pmc` 上以 `000d450` 为 authority-import parent 完成 minimal integration，包括 decoder evidence 暴露、零初始化 bounded residual、spatial/action-value heads、Stage A/B/C 分阶段冻结训练入口，以及同一 episode 内 `B0`、treatment 与 `B8 oracle` 的 paired metrics 输出。MTP、BRM、support aggregation 与 hflip 均未接入活动路径；旧候选脚本已从本实验分支移除但保留于 Git 历史。`B2-B7` 的完整 matched-budget policy harness 尚未实现，因此当前代码只能用于 Stage A diagnostic，不能用于完整 EXP-001 结论。
+- 当前实现状态：已在 `exp/EXP-001-av-pmc` 上以 `000d450` 为 authority-import parent 完成 minimal integration，包括 decoder evidence 暴露、零初始化 bounded residual、spatial/action-value heads、Stage A/B/C 分阶段冻结训练入口，以及同一 episode 内 `B0`、treatment 与 `B8 oracle` 的 paired metrics 输出。MTP、BRM、support aggregation 与 hflip 均未接入活动路径；旧候选脚本已从本实验分支移除但保留于 Git 历史。Stage A 已于 2026-07-28 正式完成；`B2-B7` 的完整 matched-budget policy harness 尚未实现，因此当前代码仍不能用于完整 EXP-001 结论。
 - 本地验证状态（2026-07-26）：checkpoint contract 与 episode manifest/replay 共 9 个 tests 已在 Python 3.8.20 + PyTorch 2.4.1 CPU 环境通过，11 个相关 Python 文件通过 AST syntax check。测试覆盖 adapter-only 接受、adapter 缺失/shape mismatch/AV-PMC contamination 拒绝、manifest deterministic generation/JSON round-trip、RNG restoration、identity drift 与跨 partition image overlap 拒绝。本机没有正式 dataset/checkpoint，因此本地结果仅用于 host-side preflight。
 - 服务器 preflight 状态（2026-07-27，`DIAGNOSTIC_ONLY`）：在 clean detached SHA `4f5222d81d0ca053d65771d1aacf7e192facc2fa` 上完成 COCO-20i fold 0、1-shot smoke。环境为 Python 3.10.19、PyTorch 2.5.1+cu121、CUDA 12.1、2×RTX 3090；官方 adapter checkpoint 的 `240/240` tensors 严格加载。9 个 repository tests、exact episode replay、forward/backward、一次 optimizer step、held-out validation、paired `B0/treatment/B8` 输出、epoch/best checkpoint saving 均通过。单 episode manifest hash 为 `e74f63c4b3968ddf18d97a0ea2d9a1a2c74677acc1c0bdebf7d571720de6b45e`，只用于执行链路验证，不作为 formal episode input、observed gain 或 scientific evidence。`detectron2` 对 `iopath` 的版本约束不一致未影响当前路径，记录为 non-blocking environment note。
 - Stage A frozen episodes（2026-07-27）：tracked manifest 为 `experiments/EXP-001/episodes/coco_fold0_1shot_train1200_cal600_val600_seed0.json`，Git-blob/file SHA256 为 `c0abf8545a07800e4f56cb4f83afd3738553dda87d1223855d46891156a23de9`，包含 COCO-20i fold 0、1-shot、seed 0 的 train/calibration/validation `1200/600/600` episodes。三个 partitions 之间 query/support identity overlap 为 0，均覆盖全部 60 个 base classes；每类 episode 数范围依次为 train `8–35`、calibration `3–20`、validation `5–19`。
 - Stage A frozen config（2026-07-27）：tracked config 为 `experiments/EXP-001/configs/stage_a_operator_grid.json`，Git-blob/file SHA256 为 `05d4f7836f8952e86e0c138e6ca1ad428a3ccdeaf259da3ec2643389a4d5eb5d`。每 config 固定 `10 epochs / 12000 optimizer steps`，每 epoch 使用同一 1200 train episodes 并在同一 600 validation episodes 上选择 best checkpoint；六个 run IDs 对应 projection width `{32,64}` × residual scale `{0.05,0.10,0.20}`，其余 training/execution fields 完全共享。30-step `DIAGNOSTIC_ONLY` probe 估计每 config 约 `2.6–3.0 h`，两张独立 GPU 各串行三个 configs 约 `7.8–9.0 h`；该 timing 不属于 scientific evidence。
-- 会话与交接状态：Stage A 已从 Idea/Research Decision 会话移交新的 Experiment 会话。Experiment 会话必须先读取 skill、research spec、本账本、AV-PMC design 和 tracked config，在 clean detached worktree checkout exact formal-input SHA `7ab637758698ddb19fdacf6c17df1f09446bec26`，逐 run capture manifest 后仅执行 Stage A 六配置 `B0/B1/B8`。运行中不得修改 tracked files、设计、episodes、exposure、seeds 或 controls；任何失败必须回传并由主机产生新 commit/run ID。
+- Stage A formal execution（2026-07-28）：服务器在 clean detached execution SHA `7ab637758698ddb19fdacf6c17df1f09446bec26` 执行，documentation SHA 为 `dab7a70beebd41874aeca9863ac705c38bdccd05`，artifact root 为 `/data6/chensq/UFSAM2_runs/EXP-001/stage_a`。六组均成功退出，matched `B0` 在六组中完全一致；每个 best metrics 文件均含 600 个唯一 validation episode IDs。两张 RTX 3090 的总体墙钟时间约 `7:54`；运行后、全部进程退出且 artifacts 验证完成之后的一次 `nvidia-smi` probe 无法连接驱动，不影响本次结果有效性。
+
+| Stage A run ID | Best epoch | B0 mIoU / FB-IoU | B1 mIoU / FB-IoU | B8 mIoU / FB-IoU | B1−B0 | B8−B1 | 改善 / 受损 / 持平 episodes |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `stage_a_p32_s005_seed0` | 5 | 71.560 / 86.086 | 72.247 / 86.494 | 72.600 / 86.676 | +0.687 | +0.353 | 290 / 300 / 10 |
+| `stage_a_p32_s010_seed0` | 10 | 71.560 / 86.086 | 72.203 / 86.663 | 73.274 / 87.180 | +0.643 | +1.071 | 260 / 333 / 7 |
+| `stage_a_p32_s020_seed0` | 6 | 71.560 / 86.086 | 72.433 / 86.737 | 73.767 / 87.403 | **+0.873** | **+1.334** | 247 / 346 / 7 |
+| `stage_a_p64_s005_seed0` | 2 | 71.560 / 86.086 | 72.162 / 86.470 | 72.310 / 86.526 | +0.602 | +0.148 | 287 / 301 / 12 |
+| `stage_a_p64_s010_seed0` | 2 | 71.560 / 86.086 | 72.068 / 86.448 | 72.480 / 86.608 | +0.508 | +0.412 | 263 / 327 / 10 |
+| `stage_a_p64_s020_seed0` | 2 | 71.560 / 86.086 | 72.141 / 86.471 | 72.640 / 86.664 | +0.580 | +0.500 | 248 / 343 / 9 |
+
+- Stage A 阶段裁决：`PASS_TO_STAGE_B`。六组 always-on repair 均超过 matched `B0`；`stage_a_p32_s020_seed0` 同时取得最高 B1（+0.873 mIoU）、最高 B8（相对 B0 +2.207 mIoU）和最大 `B8−B1` headroom（+1.334 mIoU），因此冻结为后续 Stage B/C 唯一 operator。其 validation episodes 中改善/受损/持平为 `247/346/7`：均值改善与大量 episode 受损并存，支持继续验证 selective gating，但不能作为 gating 已有效的证据。
+- 冻结 operator artifact：`/data6/chensq/UFSAM2_runs/EXP-001/stage_a/stage_a_p32_s020_seed0/pmc_operator_best.pth`，SHA256 `c7a5860a694d047cd22b2070732ace877d128c3a780b8af0c25eebe1c2307819`；对应 `run_manifest.json` SHA256 `d9c78051c1949cfe2a70bbf44bea2295c5c962d6720ffd030911f913c5494a1d`；best-epoch metrics `pmc_operator_validation_epoch6.json` SHA256 `2993ce937241b1a11f6f704280e16447b1e8d1a1222a148c7ab77ddf0694748e`。后续 Stage B/C 不得重新选择或训练 operator；若改变 operator 定义或选择结果，必须按停止规则 `REVISE` 为新 Experiment ID。
+
+| Stage A run | Run manifest SHA256 | Best checkpoint SHA256 | Best-epoch metrics SHA256 |
+|---|---|---|---|
+| `p32_s005` | `3537b9b774bc0c090fe7dcaf6d8e50e57860cbed63ef31f60717bb0f61f73f9e` | `18aa7d55aa203b6c71f8a41e6f09a136b8b37430736fad3c5ef3a2743bcc7ae8` | `0b5f34659695f29c0898dc30324f0254c5f43a0b7b3000ef49c17970a7a892b7` |
+| `p32_s010` | `c363bbf4b5da82e8242998bcb24c6ea37b1108c5df9c02516653586cdada781c` | `d2fe9764d98cb906cb4ac7667e5b168ee5923bc622bfac530d1d872d1da49ff1` | `3531ae5452c2bfccb1ac3408622b5d406b124f6f66939f27850c31f6e7c26e7f` |
+| `p32_s020` | `d9c78051c1949cfe2a70bbf44bea2295c5c962d6720ffd030911f913c5494a1d` | `c7a5860a694d047cd22b2070732ace877d128c3a780b8af0c25eebe1c2307819` | `2993ce937241b1a11f6f704280e16447b1e8d1a1222a148c7ab77ddf0694748e` |
+| `p64_s005` | `124510e969f616269502b0faac04f48bddd388475daeceb8367844a953d12702` | `604673f315abfd91252fd35d6759a1323b4e51497239c036798c3a42f3a6005c` | `3c54685a3ee20199b0f61e35b2c2c969f063c1ada1e9efb1b054248cc9be7d9d` |
+| `p64_s010` | `ae8c24768ac417cfcd16dab6494081facb8204600d2ad51e3154ffe4483341f3` | `b7f48db76cddbd35b1f6516796bb16cce0e31339057fd9a199f457ac8ee249fd` | `de7fff7e9d788dd61fd33275857dd7759792cd9624891514841847a79a4d0a4a` |
+| `p64_s020` | `4dc809aa7a6b2f71a1c9b2ee0df095423dd4c0e7e370e81b91e15dbda949dc1a` | `4eb7aa8fbc4996633339421c9a67d98677cfd13f06f9d496d409cf1b62a8ecc5` | `6cea9e999a6c7e55b74c3500522825cf9277e45ea86ce9d8bd7d55f6f0ad22bc` |
+- 会话与交接状态：Experiment 会话已在 exact formal-input SHA `7ab637758698ddb19fdacf6c17df1f09446bec26` 完成 Stage A 六配置并交回 Idea/Research Decision 会话裁决。当前控制权属于 Idea/Research Decision：先冻结 Stage B 假设、输入 operator、唯一变量、训练/校准协议、指标和阶段停止标准，并补齐所需 host-side harness；在 Stage B 达到 `FROZEN` 前不得交给 Experiment 会话或启动服务器正式训练。
 - 固定 episode 与 validation contract：正式训练入口必须提供 `--episode_manifest`，随机未追踪 episodes 会被拒绝。manifest 同时包含互斥的 `train`、`calibration`、`validation` partitions；训练仅使用 `train`，每个 epoch 仅用 `validation` 计算 matched `B0/treatment/B8` 并按 treatment mIoU 保存 best checkpoint。`calibration` 保留给后续 threshold/budget selection，不参与 best-checkpoint 选择。Stage A dataset-bound manifest 的 exact bytes、tracked path 与 hash 已按上述记录冻结；后续 stages 不得用未追踪 manifest 替代。
 - Config / checkpoint / episode hashes：Stage A config 与 episode hashes 见上述 frozen records；official COCO-20i fold-0 adapter SHA256 为 `b02b96f30ee558c37ef4fc5f889e90772dafb117e42b3fcf0945000220bc57e5`，SAM2-Large base weights SHA256 为 `7442e4e9b732a508f80e141e7c2913437a3610ee0c77381a66658c3a445df87b`。formal run 不得使用空 checkpoint path。Stage B/C inputs 仍为 `TBD`。
 - Datasets / folds / seeds：Stage A 冻结为 strict-FSS COCO-20i fold 0、1-shot、operator-training seed 0，并使用上述互斥 train/calibration/validation episodes。该 seed 只用于 bounded architecture screen，不单独满足最终多 seed `KEEP`。Stage B/C 与后续 PASCAL-5i/COCO-20i 1-shot/5-shot confirmation 仍须在进入对应阶段前冻结；PASCAL-Part/PACO-Part 仅作为单独标注的 secondary part track。
@@ -68,9 +90,9 @@
 - DROP：`B1` 与 `B8` 均无有意义 headroom；或 `B6` 在 matched budget 下不能优于 random；或固定 episodes/paired analysis 后增益消失。不得将 EXP-001 feature code 合入 accepted branch。
 - REVISE：oracle 显示 headroom，但需要改变 repair operator、target、主要 architecture、数据协议、threshold policy 或 primary metric；保留本记录并创建新 Experiment ID。
 - INCONCLUSIVE：缺少 EXP-001 frozen hashes、clean formal SHA、run manifest、matched `B0-B8` controls 或足够 training seeds；或者效果只存在于 diagnostic smoke。此时模块不得进入 accepted branch。
-- Result run IDs 与 paired summary：`TBD`
-- 决策：`PENDING`
-- Artifact URI/path 与 SHA256：`TBD`
+- Result run IDs 与 paired summary：Stage A 六个 run IDs、matched 指标及 hashes 见上表；所选 `stage_a_p32_s020_seed0` 的 `B1−B0 = +0.873 mIoU`，`B8−B0 = +2.207 mIoU`，`B8−B1 = +1.334 mIoU`。
+- 决策：EXP-001 总体仍为 `PENDING`；Stage A 阶段决策为 `PASS_TO_STAGE_B`。当前结果只认证 operator headroom 和 unconditional repair 的平均改善，不认证 spatial/action-value gating、matched-budget superiority 或最终 `KEEP`。
+- Artifact URI/path 与 SHA256：artifact root 为 `/data6/chensq/UFSAM2_runs/EXP-001/stage_a`；六组 formal provenance 见上表。Stage B 的唯一输入 operator 为 `stage_a_p32_s020_seed0/pmc_operator_best.pth`，SHA256 `c7a5860a694d047cd22b2070732ace877d128c3a780b8af0c25eebe1c2307819`。
 
 ## 记录模板
 
