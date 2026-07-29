@@ -6,8 +6,21 @@ description: Govern evidence, baselines, experiment branches, and local-to-serve
 # Manage UFSAM2 Research
 
 Use this skill only as a process gate. Treat `UNCERTAINTY_SAM2_FSS_RESEARCH_SPEC.md`
-as the authority for research goals and Go/No-Go rules. Record changing state and decisions
-only in `EXPERIMENT_LEDGER.md`. Do not duplicate either document.
+as the authority for cross-experiment research goals, evidence levels, baseline policy, and
+Go/No-Go principles. Use the following non-overlapping record authorities:
+
+- `EXPERIMENT_LEDGER.md` is the global index only. For each experiment, it may contain only the
+  Experiment ID, name, current status, final conclusion, authoritative document path, and key Git
+  SHAs.
+- `experiments/EXP-<id>.md` is the sole human-review authority for that experiment's hypothesis,
+  frozen contract, variables, metrics, decision thresholds, execution history, results, artifact
+  hashes, and decision history.
+- Tracked JSON configs and manifests are English machine-facing frozen inputs. Never rewrite an
+  observed experiment's frozen input to reflect later state; record later state in its EXP document.
+
+Do not duplicate mutable experiment details in the ledger, research spec, design documents, or
+multiple EXP documents. Update the ledger and the corresponding EXP document together when an
+experiment's indexed status, conclusion, or key SHA changes.
 
 ## Language
 
@@ -16,7 +29,8 @@ documents. Keep established academic or technical terms in English when translat
 
 ## Start Work
 
-1. Locate the Git root. Read the research spec, experiment ledger, and relevant design document.
+1. Locate the Git root. Read the research spec, experiment ledger, the current experiment's
+   authoritative `experiments/EXP-<id>.md`, and any relevant design document.
 2. Inspect `git status --short --branch`, the current SHA, and recent commits.
 3. Classify the task as exploration, formal experimentation, or result adjudication. Never present
    exploratory output as evidence.
@@ -57,7 +71,11 @@ before each has passed its standalone gate.
 
 ## Freeze the Experiment Contract
 
-Before coding or formal execution, record in `EXPERIMENT_LEDGER.md`:
+For a new experiment, create its authoritative document from `experiments/TEMPLATE.md` and add one
+index row to `EXPERIMENT_LEDGER.md`.
+
+Before coding or formal execution, freeze the following in the experiment's authoritative
+`experiments/EXP-<id>.md`:
 
 - Experiment ID, single hypothesis, and baseline run/SHA;
 - single primary change and explicit non-goals;
@@ -68,6 +86,8 @@ Before coding or formal execution, record in `EXPERIMENT_LEDGER.md`:
 Do not rewrite the original contract after observing results. Create a new Experiment ID when the
 hypothesis, threshold, data, or primary implementation changes. Lock the final configuration before
 evaluation. Treat post-final tuning as development evidence rather than independent confirmation.
+Keep the corresponding ledger row index-only; it must link to the EXP document rather than repeat
+the contract.
 
 ## Hand Off Between Local and Server
 
@@ -104,7 +124,8 @@ paths, and SHA256 values.
   and cost, and marginal value over the current accepted stack. Merge only the minimal code and add
   a regression test.
 - `DROP`: do not merge feature code. Preserve the negative result, exact SHA, config, and artifact
-  reference in the ledger.
+  reference in the experiment's authoritative EXP document, and update only the indexed status,
+  final conclusion, and key SHA in the ledger.
 - `REVISE`: preserve the old record and create a new Experiment ID.
 - `INCONCLUSIVE`: keep the change out of the mainline until stronger evidence exists.
 
