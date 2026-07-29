@@ -2,7 +2,6 @@ from typing import Dict
 
 import torch
 import torch.nn.functional as F
-import einops
 
 
 def dice_loss(inputs: torch.Tensor, targets: torch.Tensor, num_boxes: int) -> torch.Tensor:
@@ -77,7 +76,7 @@ def loss_masks(
     bs, T = masks.shape[:2]
     start = max(0, T - num_frames)
 
-    src = einops.rearrange(outputs, '(b t) h w -> b t h w', b=bs)[:, start:T]
+    src = outputs.reshape(bs, T, *outputs.shape[-2:])[:, start:T]
     tgt = masks[:, start:]
 
     # flatten to [B, F*H*W]

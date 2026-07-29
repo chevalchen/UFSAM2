@@ -4,7 +4,6 @@ from PIL import Image, ImageDraw
 import torch
 import numpy as np
 from scipy.ndimage import label
-import einops
 
 from util.commons import rescale_points, resize_mask
 
@@ -89,7 +88,7 @@ def build_prompt_inputs(frame_gt: torch.Tensor, prompt: str, training: bool, dev
     # box
     boxes = get_bounding_boxes(frame_gt)  # list of [x1,y1,x2,y2]
     n_boxes = len(boxes)
-    box_coords = einops.rearrange(boxes, 'n (p1 p2) -> (n p1) p2', p1=2, p2=2).unsqueeze(0)  # [1, 2n, 2]
+    box_coords = boxes.reshape(-1, 2).unsqueeze(0)  # [1, 2n, 2]
     box_labels = torch.tensor([2, 3], dtype=torch.int32, device=device).repeat((1, n_boxes))
     return {"point_coords": box_coords.to(device), "point_labels": box_labels.to(device)}
 

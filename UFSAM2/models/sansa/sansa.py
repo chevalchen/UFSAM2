@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import os
 from typing import Any, Dict, List, Tuple
 
-import py3_wget
 import torch
 from hydra import compose, initialize
 from hydra.utils import instantiate
@@ -11,18 +12,34 @@ import torch.nn.functional as F
 
 from models.sam2.modeling.sam2_utils import preprocess
 from models.sam2.modeling.sam2_base import SAM2Base 
+from models.sansa.mask_post_correction import BoundaryAwareResidualLogitRefiner
 from models.sansa.model_utils import BackboneOutput, DecoderOutput
 from util.path_utils import SAM2_PATHS_CONFIG, SAM2_WEIGHTS_URL
 from util.promptable_utils import rescale_prompt
 
 
 class SANSA(nn.Module):
-    def __init__(self, sam: SAM2Base, device: torch.device):
+    def __init__(
+        self,
+        sam: SAM2Base,
+        device: torch.device,
+        mask_post_correction: bool = False,
+    ):
         super().__init__()
         self.sam = sam
         self.device = device
+        self.mask_post_refiner = (
+            BoundaryAwareResidualLogitRefiner()
+            if mask_post_correction
+            else None
+        )
 
-    def forward(self, samples: torch.Tensor, prompt_dict: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def forward(
+        self,
+        samples: torch.Tensor,
+        prompt_dict: List[Dict[str, Any]],
+        return_mask_post_correction_data: bool = False,
+    ) -> Dict[str, Any]:
         """
         Run SANSA.
         Args:
@@ -37,7 +54,15 @@ class SANSA(nn.Module):
 
         samples, B, T, orig_size = self._preprocess_visual_features(samples, self.sam.image_size)
         backbone_output: BackboneOutput = self._forward_backbone(samples, orig_size)
-        outputs = {"masks": []}
+        if return_mask_post_correction_data and self.mask_post_refiner is None:
+            raise RuntimeError(
+                "Mask post-correction data requires mask_post_correction=True."
+            )
+        outputs = {
+            "masks": [],
+            "baseline_masks": [],
+            "support_fractions": [],
+        }
 
         n_shots = prompt_dict['shots']
         for b in range(B):
@@ -56,15 +81,36 @@ class SANSA(nn.Module):
                         
                 else:
                     decoder_out: DecoderOutput = self._compute_decoder_out_w_mem(backbone_output, absolute_idx, idx, self.memory_bank)
+                    baseline_mask = decoder_out.masks[0]
+                    decoder_out, support_fraction = self._apply_mask_post_correction(
+                        decoder_out
+                    )
+                    outputs["support_fractions"].append(support_fraction)
+
+                if idx < n_shots:
+                    baseline_mask = decoder_out.masks[0]
 
                 # update memory bank
                 mem_entry = self._compute_memory_bank_dict(decoder_out, backbone_output, absolute_idx)
                 self.memory_bank[idx] = mem_entry
                 outputs["masks"].append(decoder_out.masks[0])
+                outputs["baseline_masks"].append(baseline_mask)
 
         masks = torch.cat(outputs["masks"])
         masks = F.interpolate(masks[None], size=orig_size[0], mode='bilinear', align_corners=False)[0]
-        return {"pred_masks": masks}
+        result = {"pred_masks": masks}
+        if return_mask_post_correction_data:
+            baseline_masks = torch.cat(outputs["baseline_masks"])
+            result["mask_post_baseline_pred_masks"] = F.interpolate(
+                baseline_masks[None],
+                size=orig_size[0],
+                mode="bilinear",
+                align_corners=False,
+            )[0]
+            result["mask_post_support_fraction"] = torch.stack(
+                outputs["support_fractions"]
+            )
+        return result
 
     def _preprocess_visual_features(
         self, samples: torch.Tensor, image_size: int
@@ -156,7 +202,34 @@ class SANSA(nn.Module):
             high_res_features=high_res_features,
             multimask_output=True if memory_idx > 0 else False
         )
+        decoder_out._mask_post_feature = high_res_features[0]
         return decoder_out
+
+    def _apply_mask_post_correction(
+        self,
+        decoder_out: DecoderOutput,
+    ) -> Tuple[DecoderOutput, torch.Tensor]:
+        if self.mask_post_refiner is None:
+            return decoder_out, decoder_out.low_res_masks.new_zeros(())
+        decoder_feature = getattr(decoder_out, "_mask_post_feature", None)
+        if decoder_feature is None:
+            raise RuntimeError(
+                "Mask post-correction is enabled, but the decoder output has "
+                "no highest-resolution feature."
+            )
+        correction = self.mask_post_refiner(
+            decoder_out.low_res_masks,
+            decoder_feature,
+        )
+        decoder_out.low_res_masks = correction.logits
+        decoder_out.high_res_masks = F.interpolate(
+            correction.logits.detach(),
+            size=(self.sam.image_size, self.sam.image_size),
+            mode="bilinear",
+            align_corners=False,
+        )
+        decoder_out.masks = decoder_out.low_res_masks
+        return decoder_out, correction.support_mask.float().mean()
 
     def _compute_memory_bank_dict(
         self, decoder_out: DecoderOutput, backbone_out: BackboneOutput, idx: int
@@ -219,11 +292,19 @@ class SANSA(nn.Module):
         return BackboneOutput(orig_size, vision_feats, vision_pos, sizes)
 
 
-def build_sansa(sam2_version: str = 'large', adaptformer_stages: List[int] = [2, 3], channel_factor: float = 0.3, device: str = 'cuda') -> SANSA:
+def build_sansa(
+    sam2_version: str = 'large',
+    adaptformer_stages: List[int] = [2, 3],
+    channel_factor: float = 0.3,
+    device: str = 'cuda',
+    mask_post_correction: bool = False,
+) -> SANSA:
     assert sam2_version in SAM2_PATHS_CONFIG.keys(), f'wrong argument sam2_version: {sam2_version}'
     
     sam2_weights, sam2_config = SAM2_PATHS_CONFIG[sam2_version]
     if not os.path.isfile(sam2_weights):
+        import py3_wget
+
         print(f"Downloading SAM2-{sam2_version}")
         py3_wget.download_file(SAM2_WEIGHTS_URL[sam2_version], sam2_weights)
 
@@ -241,10 +322,18 @@ def build_sansa(sam2_version: str = 'large', adaptformer_stages: List[int] = [2,
 
     state_dict = torch.load(sam2_weights, map_location="cpu", weights_only=False)["model"]
     sam.load_state_dict(state_dict, strict=False)
-    model = SANSA(sam=sam, device=torch.device(device))
+    model = SANSA(
+        sam=sam,
+        device=torch.device(device),
+        mask_post_correction=mask_post_correction,
+    )
 
-    # freeze everything except adapters
+    # Preserve SANSA's adapter-training default while exposing the optional
+    # candidate module. EXP-002's dedicated trainer freezes the adapters.
     for name, p in model.named_parameters():
-        p.requires_grad = ("adapter" in name)
+        p.requires_grad = (
+            "adapter" in name
+            or "mask_post_refiner" in name
+        )
 
     return model

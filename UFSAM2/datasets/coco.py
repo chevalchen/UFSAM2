@@ -55,8 +55,10 @@ class DatasetCOCO(Dataset):
         batch = {
             'query_img': query_img,
             'query_mask': query_mask,
+            'query_name': query_name,
             'support_imgs': support_imgs,
             'support_masks': support_masks,
+            'support_names': support_names,
             'base_masks':[base_supports,base_query],
             'class_id': torch.tensor(class_sample)
         }

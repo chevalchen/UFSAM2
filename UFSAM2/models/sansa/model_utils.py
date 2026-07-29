@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Any
 
-import einops
 from torch import Tensor
 
 class DDPWrapper:
@@ -109,8 +108,13 @@ class BackboneOutput:
             List of tensors, one per level, sliced as [:, idx:idx+1, :].
         """
         vision_feats_16 = self.vision_feats[-1][:, idx:idx + 1, :]
-        vision_feats_16 = einops.rearrange(vision_feats_16, '(h w) b c -> b c h w', h=self.feat_sizes[-1][0])
-        return vision_feats_16
+        height, width = self.feat_sizes[-1]
+        return vision_feats_16.permute(1, 2, 0).reshape(
+            vision_feats_16.shape[1],
+            vision_feats_16.shape[2],
+            height,
+            width,
+        )
 
 
     def get_high_res_features(self, current_vision_feats: List[Tensor]) -> List[Tensor]:

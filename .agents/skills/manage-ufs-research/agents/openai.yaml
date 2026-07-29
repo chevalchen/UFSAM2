@@ -1,0 +1,4 @@
+interface:
+  display_name: "UFSAM2 研究工作流"
+  short_description: "管理 UFSAM2 baseline 认证、证据分级与本地服务器 Git 追溯"
+  default_prompt: "使用 $manage-ufs-research 准备一个可复现的 UFSAM2 实验。"
