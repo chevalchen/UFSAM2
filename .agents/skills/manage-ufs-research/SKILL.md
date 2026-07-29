@@ -101,13 +101,24 @@ the contract.
   never only to a branch name.
 - Run the exact SHA in a clean detached worktree on the server. Never edit, pull, switch branches, or
   hot-fix the running worktree.
+- The server execution session is execution-only: save immutable external artifacts and return a
+  structured report containing the run ID, exact Git SHA, config/manifest/checkpoint hashes,
+  artifact URIs and hashes, metric summary, and any execution errors. Do not edit research documents
+  or create commits from the detached execution worktree.
+- The host Idea/Decision session is the sole adjudicator and writer of experiment state. It updates
+  the authoritative EXP document and ledger index together, then commits and pushes the decision
+  record.
+- If a server-side Git report is unavoidable, wait until every run process has exited, create a
+  separate writable report branch/worktree, and commit only an `UNADJUDICATED_EXECUTION_REPORT`.
+  That report may contain execution facts but must not change the frozen contract, experiment
+  status, final conclusion, or `EXPERIMENT_LEDGER.md`.
 - Give every fix a new commit and run ID. Never overwrite or reinterpret an old run.
 
 Before formal execution, run:
 
 ```text
 python .agents/skills/manage-ufs-research/scripts/capture_run_manifest.py \
-  --experiment EXP-000 --config <tracked-config> --episodes <tracked-episodes> \
+  --experiment EXP-<id> --config <tracked-config> --episodes <tracked-episodes> \
   --checkpoint <checkpoint> --seed 0 --fold 0 --command "<exact command>" \
   --output <external-run-dir>/manifest.json
 ```

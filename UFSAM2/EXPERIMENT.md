@@ -1,5 +1,9 @@
 # EXPERIMENT: Uncertainty-Guided SAM2 Few-Shot Segmentation
 
+> [!WARNING]
+> **HISTORICAL / 非当前权威记录**
+> 本文件仅保留 baseline restart 前的实验历史，用于假设生成和调试。不得将其作为当前 experiment contract、状态、baseline、结果或裁决的 authority。当前实验索引见 [`EXPERIMENT_LEDGER.md`](../EXPERIMENT_LEDGER.md)，单实验权威记录见 [`experiments/`](../experiments/)。
+
 > **面向对象：** 人类研究者审阅；正文使用中文，必要的 academic/technical terms 保留英文。
 
 当前分支：`exp/uncertainty-guided-fss`

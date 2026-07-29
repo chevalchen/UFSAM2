@@ -1,5 +1,9 @@
 # UFSAM2 Process
 
+> [!WARNING]
+> **HISTORICAL RECORD — NOT CURRENT AUTHORITY**
+> This file preserves the pre-baseline-restart engineering history for hypothesis generation and debugging only. It must not be used as the current experiment contract, status, baseline, result, or decision authority. See [`EXPERIMENT_LEDGER.md`](../EXPERIMENT_LEDGER.md) for the current index and [`experiments/`](../experiments/) for authoritative per-experiment records.
+
 This is the compact engineering/process log for branch `exp/uncertainty-guided-fss`.
 
 > **Primary audience:** Agents maintaining the engineering and experiment workflow.
