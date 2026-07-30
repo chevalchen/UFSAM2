@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "evidence_label": "FROZEN_RESEARCH_CONTRACT",
+  "experiment_id": "EXP-003",
+  "stage": {
+    "id": "operator_headroom",
+    "name": "Stage A"
+  },
+  "execution_ready": false,
+  "authority": "experiments/EXP-003.md",
+  "hypothesis": "On held-out COCO-20i base-class 5-shot episodes, removing exactly one complete support-memory entry has meaningful safe-oracle headroom over matched all-support SANSA, justifying a later learned query-conditioned contribution selector.",
+  "baseline": {
+    "accepted_parent_git_sha": "000d4507f16028871c58a4f17a59a038beb073d2",
+    "causal_control": "B0 generated on the same formal implementation SHA, checkpoint, episode manifest, cached feature context, and query decoder path",
+    "official_adapter": {
+      "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/coco-20i-4/adapter_coco_fold0.pth",
+      "sha256": "b02b96f30ee558c37ef4fc5f889e90772dafb117e42b3fcf0945000220bc57e5"
+    },
+    "sam2_large_base_weights": {
+      "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/sam2_hiera_large.pt",
+      "sha256": "7442e4e9b732a508f80e141e7c2913437a3610ee0c77381a66658c3a445df87b"
+    },
+    "sam2_version": "large",
+    "adaptformer_stages": [
+      2,
+      3
+    ],
+    "channel_factor": 0.3
+  },
+  "legacy_reference": {
+    "implementation_git_sha": "fb10cee",
+    "followup_git_shas": [
+      "a07d20a",
+      "596407f"
+    ],
+    "evidence_label": "HISTORICAL",
+    "reuse_policy": "Audit only. Do not cherry-pick the single-support logit-fusion implementation, reuse its expected-IoU head, or inherit its tuned fallback margin."
+  },
+  "dataset": {
+    "name": "coco",
+    "track": "strict_fss_base_validation_screening",
+    "data_root": "/data6/chensq/datasets",
+    "source_split": "train",
+    "fold": 0,
+    "shots": 5,
+    "prompt": "mask",
+    "seed": 0,
+    "episode_manifest": {
+      "status": "TBD_MANIFEST_PENDING",
+      "path": "experiments/EXP-003/episodes/coco_fold0_5shot_train1200_cal600_val600_seed0.json",
+      "sha256": null,
+      "generator_seed": 0,
+      "partition_counts": {
+        "train": 1200,
+        "calibration": 600,
+        "validation": 600
+      },
+      "identity_policy": "Every query and all five support identities are mutually disjoint across all three partitions.",
+      "stage_a_usage": {
+        "train": "unused and reserved for a later stage",
+        "calibration": "unused and reserved for a later stage",
+        "validation": "single locked Stage A operator-headroom evaluation"
+      }
+    }
+  },
+  "fixed_operator": {
+    "name": "drop_exactly_one_complete_support_memory_v1",
+    "primitive_predictions": [
+      "B0",
+      "D0",
+      "D1",
+      "D2",
+      "D3",
+      "D4"
+    ],
+    "b0": "All five support-memory entries are visible to the standard SANSA query decode.",
+    "drop_variant": "Dj removes the complete memory feature, positional encoding, and object pointer associated with frozen support slot j; the remaining four entries preserve their original order and values.",
+    "application_scope": "query memory attention only",
+    "training": "none",
+    "continuous_weighting": false,
+    "multiple_support_deletion": false
+  },
+  "deterministic_similarity": {
+    "support_descriptor": "Masked average pooling of the final SANSA image-encoder feature map using the nearest-neighbor resized ground-truth support mask.",
+    "query_descriptor": "Global average pooling of the final SANSA image-encoder feature map without query masks or predictions.",
+    "score": "Cosine similarity between L2-normalized support and query descriptors.",
+    "b2s_action": "Drop the lowest-scoring support slot.",
+    "b7i_action": "Drop the highest-scoring support slot.",
+    "tie_break": "lowest support slot index",
+    "trainable_projection": false,
+    "temperature": null,
+    "threshold": null,
+    "fallback": null
+  },
+  "derived_rows": [
+    {
+      "row": "B0",
+      "selection": "none",
+      "evidence_role": "matched causal baseline"
+    },
+    {
+      "row": "B1R_s0_to_s4",
+      "selection": "one uniformly selected support slot from SHA256(episode_id, random_seed), for frozen seeds 0 through 4",
+      "evidence_role": "matched random controls"
+    },
+    {
+      "row": "B1R_mean",
+      "selection": "mean of the five frozen random-control effects",
+      "evidence_role": "unconditional drop-one control"
+    },
+    {
+      "row": "B2S",
+      "selection": "drop the deterministic least-similar support",
+      "evidence_role": "deployable non-learned control"
+    },
+    {
+      "row": "B7I",
+      "selection": "drop the deterministic most-similar support",
+      "evidence_role": "inverted negative control"
+    },
+    {
+      "row": "B8_forced",
+      "selection": "ground truth selects the highest episode-IoU D0-D4 result and must drop one support",
+      "evidence_role": "ORACLE forced-action headroom"
+    },
+    {
+      "row": "B8_positive",
+      "selection": "ground truth selects max(B0,D0-D4) and drops a support only for strict positive episode gain",
+      "evidence_role": "ORACLE safe positive-gain headroom"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": "aggregate class-mIoU",
+    "primary_effect": "B8_positive minus B0",
+    "paired_unit": "validation episode identity",
+    "paired_effect": "episode foreground IoU treatment minus B0",
+    "bootstrap": {
+      "method": "paired percentile",
+      "resamples": 10000,
+      "seed": 0,
+      "confidence_level": 0.95,
+      "two_sided": true
+    },
+    "random_control_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "minimum_meaningful_effect_miou_points": 0.5,
+    "supporting_metrics": [
+      "FB-IoU",
+      "worst-decile episode IoU",
+      "positive-negative-tied episode counts",
+      "oracle intervention rate",
+      "similarity-to-oracle top-1 agreement",
+      "six-decode latency",
+      "peak device memory"
+    ],
+    "guardrails": {
+      "max_b2s_fb_iou_drop_points_vs_b0": 0.2,
+      "max_b2s_worst_decile_episode_iou_drop_points_vs_b0": 0.5,
+      "exact_b0_replay_required": true,
+      "matched_episode_ids_required": true,
+      "expected_unique_validation_episodes": 600,
+      "primitive_prediction_fingerprints_required": true,
+      "provenance_required": true
+    }
+  },
+  "decision_rules": {
+    "pass_to_stage_b": "B8_positive aggregate class-mIoU improvement is at least 0.5 point AND its paired 95% CI lower bound is greater than zero, with all provenance, replay, and guardrail checks passing.",
+    "deterministic_candidate": "In addition to Stage A PASS, B2S improves aggregate class-mIoU by at least 0.5 point, has a paired 95% CI lower bound greater than zero, and passes both guardrails.",
+    "drop": "With complete valid evidence, B8_positive aggregate class-mIoU improvement is below 0.5 point OR its paired 95% CI lower bound is not greater than zero.",
+    "revise": "Changing the number of removed supports, using continuous weighting, changing the similarity descriptor, dataset, shots, primary metric, threshold, or stop rule requires a new Experiment ID.",
+    "inconclusive": "The manifest, formal SHA, complete primitive rows, matched identities, artifacts, provenance, or valid software execution is missing."
+  },
+  "compute": {
+    "formal_training_runs": 0,
+    "formal_evaluation_runs": 1,
+    "primitive_query_decodes_per_episode": 6,
+    "expected_validation_query_decodes": 3600,
+    "gpu_policy": "one independent process on one GPU",
+    "expected_task_packet_hours": "2-6, diagnostic estimate only",
+    "artifact_root": "/data6/chensq/UFSAM2_runs/EXP-003/stage_a",
+    "artifact_policy": "outside Git, immutable, one directory per run"
+  },
+  "disabled_interventions": {
+    "hflip": true,
+    "uncertainty_gated_hflip": true,
+    "memory_to_point": true,
+    "post_memory_calibration": true,
+    "mask_post_correction": true,
+    "boundary_refinement": true,
+    "single_support_logit_fusion": true,
+    "continuous_support_weighting": true,
+    "learned_support_selector": true
+  }
+}

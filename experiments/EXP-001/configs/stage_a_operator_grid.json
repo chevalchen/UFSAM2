@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "evidence_label": "FROZEN_STAGE_A_INPUT",
+  "experiment_id": "EXP-001",
+  "stage": {
+    "id": "operator",
+    "name": "Stage A"
+  },
+  "candidate_generation_git_sha": "c0568948263e99e783a6c5842931c6fef7b23a19",
+  "dataset": {
+    "name": "coco",
+    "data_root": "/data6/chensq/datasets",
+    "source_split": "train",
+    "fold": 0,
+    "shots": 1,
+    "prompt": "mask",
+    "seed": 0
+  },
+  "episode_manifest": {
+    "path": "experiments/EXP-001/episodes/coco_fold0_1shot_train1200_cal600_val600_seed0.json",
+    "sha256": "c0abf8545a07800e4f56cb4f83afd3738553dda87d1223855d46891156a23de9",
+    "partition_counts": {
+      "train": 1200,
+      "calibration": 600,
+      "validation": 600
+    }
+  },
+  "base_model": {
+    "official_adapter": {
+      "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/coco-20i-4/adapter_coco_fold0.pth",
+      "sha256": "b02b96f30ee558c37ef4fc5f889e90772dafb117e42b3fcf0945000220bc57e5"
+    },
+    "sam2_large_base_weight_sha256": "7442e4e9b732a508f80e141e7c2913437a3610ee0c77381a66658c3a445df87b",
+    "sam2_version": "large",
+    "adaptformer_stages": [
+      2,
+      3
+    ],
+    "channel_factor": 0.3
+  },
+  "training": {
+    "pmc_train_stage": "operator",
+    "hidden_dim": 128,
+    "batch_size": 1,
+    "epochs": 10,
+    "pmc_max_steps": 12000,
+    "lr": 0.0001,
+    "weight_decay": 0.0,
+    "clip_max_norm": 0.1,
+    "threshold": 0.5,
+    "spatial_threshold": 0.0,
+    "episode_threshold": 0.0,
+    "gate_temperature": 0.25,
+    "dense_sign_weight": 0.25,
+    "num_workers": 0,
+    "device": "cuda",
+    "no_distributed": true
+  },
+  "execution": {
+    "conda_env": "sam2coco",
+    "repository_workdir": "UFSAM2",
+    "require_clean_detached_worktree": true,
+    "run_manifest_script": ".agents/skills/manage-ufs-research/scripts/capture_run_manifest.py",
+    "run_manifest_required_before_each_run": true,
+    "gpu_policy": "one independent run per GPU",
+    "artifact_directory": {
+      "root": "/data6/chensq/UFSAM2_runs/EXP-001/stage_a",
+      "location": "outside the Git repository",
+      "immutable": true,
+      "one_directory_per_run": true
+    }
+  },
+  "disabled_interventions": {
+    "hflip": true,
+    "memory_to_point": true,
+    "brm": true,
+    "support_aggregation": true
+  },
+  "candidate_runs": [
+    {
+      "run_id": "stage_a_p32_s005_seed0",
+      "projection_dim": 32,
+      "residual_scale": 0.05
+    },
+    {
+      "run_id": "stage_a_p32_s010_seed0",
+      "projection_dim": 32,
+      "residual_scale": 0.1
+    },
+    {
+      "run_id": "stage_a_p32_s020_seed0",
+      "projection_dim": 32,
+      "residual_scale": 0.2
+    },
+    {
+      "run_id": "stage_a_p64_s005_seed0",
+      "projection_dim": 64,
+      "residual_scale": 0.05
+    },
+    {
+      "run_id": "stage_a_p64_s010_seed0",
+      "projection_dim": 64,
+      "residual_scale": 0.1
+    },
+    {
+      "run_id": "stage_a_p64_s020_seed0",
+      "projection_dim": 64,
+      "residual_scale": 0.2
+    }
+  ]
+}

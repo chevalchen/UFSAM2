@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "evidence_label": "FROZEN_RESEARCH_CONTRACT",
+  "experiment_id": "EXP-002",
+  "stage": {
+    "id": "operator_headroom",
+    "name": "Stage A"
+  },
+  "execution_ready": false,
+  "authority": "experiments/EXP-002.md",
+  "hypothesis": "A fixed lightweight boundary-aware residual logit refiner has meaningful always-on or oracle-routed segmentation headroom over matched SANSA B0 on held-out COCO-20i base-validation episodes.",
+  "baseline": {
+    "accepted_parent_git_sha": "000d4507f16028871c58a4f17a59a038beb073d2",
+    "causal_control": "B0 generated on the same formal implementation SHA, checkpoint, and episode manifest",
+    "official_adapter": {
+      "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/coco-20i-4/adapter_coco_fold0.pth",
+      "sha256": "b02b96f30ee558c37ef4fc5f889e90772dafb117e42b3fcf0945000220bc57e5"
+    },
+    "sam2_large_base_weight_sha256": "7442e4e9b732a508f80e141e7c2913437a3610ee0c77381a66658c3a445df87b",
+    "sam2_version": "large",
+    "adaptformer_stages": [
+      2,
+      3
+    ],
+    "channel_factor": 0.3
+  },
+  "legacy_reference": {
+    "git_sha": "d05e13fc2033ee4700f13d08c044c17f84770f00",
+    "evidence_label": "HISTORICAL",
+    "reuse_policy": "Audit only. Reimplement the frozen operator minimally; do not cherry-pick the legacy module or inherit its mixed BRM, hflip, and UQ results."
+  },
+  "dataset": {
+    "name": "coco",
+    "track": "strict_fss_base_validation_screening",
+    "data_root": "/data6/chensq/datasets",
+    "source_split": "train",
+    "fold": 0,
+    "shots": 1,
+    "prompt": "mask",
+    "seed": 0,
+    "episode_manifest": {
+      "path": "experiments/EXP-001/episodes/coco_fold0_1shot_train1200_cal600_val600_seed0.json",
+      "sha256": "c0abf8545a07800e4f56cb4f83afd3738553dda87d1223855d46891156a23de9",
+      "partition_counts": {
+        "train": 1200,
+        "calibration": 600,
+        "validation": 600
+      },
+      "stage_a_usage": {
+        "train": "operator training",
+        "calibration": "unused and retained for a later stage if Stage A passes",
+        "validation": "single locked formal headroom evaluation after the final training step"
+      }
+    }
+  },
+  "fixed_operator": {
+    "name": "boundary_aware_residual_logit_refiner_v1",
+    "inputs": {
+      "mask_logits": {
+        "channels": 1,
+        "source": "selected SAM2 low-resolution query-mask logits"
+      },
+      "decoder_feature": {
+        "channels": 32,
+        "source": "highest-resolution SAM2 decoder feature"
+      }
+    },
+    "network": [
+      {
+        "type": "conv2d",
+        "in_channels": 33,
+        "out_channels": 16,
+        "kernel_size": 3,
+        "padding": 1
+      },
+      {
+        "type": "relu",
+        "inplace": true
+      },
+      {
+        "type": "conv2d",
+        "in_channels": 16,
+        "out_channels": 16,
+        "kernel_size": 3,
+        "padding": 1
+      },
+      {
+        "type": "relu",
+        "inplace": true
+      },
+      {
+        "type": "conv2d",
+        "in_channels": 16,
+        "out_channels": 1,
+        "kernel_size": 3,
+        "padding": 1,
+        "zero_initialize_weight_and_bias": true
+      }
+    ],
+    "intrinsic_spatial_support": {
+      "definition": "0.4 < sigmoid(mask_logits) < 0.6",
+      "detached": true,
+      "role": "Part of the fixed repair operator, not a learned routing variable."
+    },
+    "output": "mask_logits + intrinsic_spatial_support * residual_offset",
+    "application_scope": "query masks only"
+  },
+  "training": {
+    "trainable_parameters": "fixed_operator_only",
+    "frozen_parameters": [
+      "SAM2",
+      "SANSA",
+      "AdaptFormer adapters"
+    ],
+    "seed": 0,
+    "batch_size": 1,
+    "epochs": 10,
+    "max_optimizer_steps": 12000,
+    "optimizer": {
+      "type": "AdamW",
+      "lr": 0.0001,
+      "weight_decay": 0.0,
+      "betas": [
+        0.9,
+        0.999
+      ]
+    },
+    "scheduler": {
+      "type": "CosineAnnealingLR",
+      "t_max": "epochs * train_loader_length"
+    },
+    "clip_max_norm": 0.1,
+    "loss": {
+      "name": "query_mask_focal_plus_dice",
+      "focal_alpha": 0.25,
+      "focal_gamma": 2.0
+    },
+    "formal_checkpoint": "final optimizer step at epoch 10",
+    "validation_during_training": false,
+    "configuration_selection": "none"
+  },
+  "causal_rows": [
+    {
+      "row": "B0",
+      "operator": "off",
+      "episode_routing": "none",
+      "evidence_role": "matched causal baseline"
+    },
+    {
+      "row": "B1",
+      "operator": "fixed_operator",
+      "episode_routing": "all validation episodes",
+      "evidence_role": "always-on operator effect"
+    },
+    {
+      "row": "B8_r25",
+      "operator": "fixed_operator",
+      "episode_routing": "top 25 percent by ground-truth delta-IoU",
+      "evidence_role": "ORACLE headroom"
+    },
+    {
+      "row": "B8_r50",
+      "operator": "fixed_operator",
+      "episode_routing": "top 50 percent by ground-truth delta-IoU",
+      "evidence_role": "ORACLE headroom"
+    },
+    {
+      "row": "B8_r75",
+      "operator": "fixed_operator",
+      "episode_routing": "top 75 percent by ground-truth delta-IoU",
+      "evidence_role": "ORACLE headroom"
+    },
+    {
+      "row": "B8_positive",
+      "operator": "fixed_operator",
+      "episode_routing": "all and only episodes with ground-truth delta-IoU greater than zero",
+      "evidence_role": "ORACLE unconstrained positive-gain upper bound"
+    }
+  ],
+  "evaluation": {
+    "primary_metric": "aggregate class-mIoU",
+    "paired_unit": "validation episode identity",
+    "paired_effect": "episode IoU treatment minus B0",
+    "bootstrap": {
+      "method": "paired percentile",
+      "resamples": 10000,
+      "seed": 0,
+      "confidence_level": 0.95,
+      "two_sided": true
+    },
+    "supporting_metrics": [
+      "FB-IoU",
+      "positive-repair episode rate",
+      "negative-repair episode rate",
+      "worst-decile episode IoU",
+      "intrinsic activated pixel area",
+      "trainable parameter count",
+      "FLOPs",
+      "latency"
+    ],
+    "minimum_meaningful_effect_miou_points": 0.5,
+    "guardrails": {
+      "max_fb_iou_drop_points_vs_b0": 0.2,
+      "max_worst_decile_episode_iou_drop_points_vs_b0": 0.5,
+      "exact_b0_replay_required": true,
+      "matched_episode_ids_required": true,
+      "provenance_required": true
+    }
+  },
+  "decision_rules": {
+    "pass_to_stage_b": "At least one of B1 or the frozen B8 rows has aggregate class-mIoU improvement >= 0.5 point or paired 95% CI lower bound > 0, and all applicable guardrails and provenance checks pass.",
+    "drop": "B1 and every frozen B8 row are below 0.5 aggregate class-mIoU improvement and none has paired 95% CI lower bound > 0, with complete valid formal evidence.",
+    "revise": "Any change to operator inputs, topology, hidden width, intrinsic spatial support, loss, training exposure, data protocol, primary metric, threshold, or stop rule requires a new Experiment ID.",
+    "inconclusive": "Formal evidence is incomplete because of missing frozen inputs, dirty or wrong SHA, missing matched rows, invalid provenance, software or environment failure, or insufficient completed evaluation."
+  },
+  "compute": {
+    "formal_training_runs": 1,
+    "gpu_policy": "one independent run on one GPU",
+    "expected_task_packet_hours": "2-4, diagnostic estimate only",
+    "artifact_root": "/data6/chensq/UFSAM2_runs/EXP-002/stage_a",
+    "artifact_policy": "outside Git, immutable, one directory per run"
+  },
+  "disabled_interventions": {
+    "hflip": true,
+    "uncertainty_gated_hflip": true,
+    "memory_to_point": true,
+    "post_memory_calibration": true,
+    "support_aggregation": true,
+    "episode_value_routing": true,
+    "learned_spatial_routing": true
+  }
+}
