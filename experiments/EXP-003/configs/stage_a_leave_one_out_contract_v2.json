@@ -1,0 +1,83 @@
+{
+  "schema_version": 2,
+  "evidence_label": "FROZEN_RESEARCH_CONTRACT_RESOLUTION",
+  "experiment_id": "EXP-003",
+  "stage": {
+    "id": "operator_headroom",
+    "name": "Stage A"
+  },
+  "implementation_ready": true,
+  "execution_ready": false,
+  "authority": "experiments/EXP-003.md",
+  "supersedes": {
+    "path": "experiments/EXP-003/configs/stage_a_leave_one_out_contract.json",
+    "sha256": "fb244a41919c1c279b8ecd8e0ca473f57968a4172bf701357145e6af9f969cdf",
+    "reason": "Resolve the preregistered manifest placeholder with exact tracked bytes and clarify that identity disjointness is required across partitions, while ordinary within-partition episodic image reuse is allowed."
+  },
+  "scientific_contract_inheritance": {
+    "rule": "All hypothesis, baseline, operator, causal rows, similarity definition, metrics, thresholds, guardrails, compute limits, and decision rules are inherited unchanged from the superseded contract.",
+    "scientific_variable_changed": false
+  },
+  "episode_manifest": {
+    "path": "experiments/EXP-003/episodes/coco_fold0_5shot_train1200_cal600_val600_seed0.json",
+    "sha256": "2ff8181ad80bbe11b4da4eef48d90ceb90aa3a02af06f70bb051dda18ab1a8b6",
+    "source_branch": "exp/EXP-003-coco-fold0-5shot-manifest",
+    "source_commit": "286fe46dd3c1e7c571455e2dbe2ff951a8742ccb",
+    "generator": {
+      "audited_source_git_sha": "80607302a71fde8ab9e26f0558c4605a67c770b4",
+      "episode_manifest_py_sha256": "5436922ea065f431e1cf21b702ad5d6e61669dd2897c50e9f2a5131e65bb4fd6",
+      "generation_seed": 0
+    },
+    "dataset": "coco",
+    "source_split": "train",
+    "fold": 0,
+    "shots": 5,
+    "partition_counts": {
+      "train": 1200,
+      "calibration": 600,
+      "validation": 600
+    },
+    "identity_policy": {
+      "within_episode": "The query and all five supports are mutually distinct.",
+      "across_partitions": "No query or support image identity is shared between train, calibration, and validation.",
+      "within_partition": "Image reuse across different episodes in the same partition is allowed and frozen by the exact manifest."
+    },
+    "verification": {
+      "unique_episode_ids": 2400,
+      "duplicate_support_episodes": 0,
+      "query_also_used_as_support_episodes": 0,
+      "cross_partition_image_overlap": {
+        "train_calibration": 0,
+        "train_validation": 0,
+        "calibration_validation": 0
+      },
+      "exact_replay": {
+        "train": "1200/1200",
+        "calibration": "600/600",
+        "validation": "600/600",
+        "total": "2400/2400"
+      },
+      "image_occurrences": {
+        "train": 7200,
+        "calibration": 3600,
+        "validation": 3600
+      },
+      "unique_images_within_partition": {
+        "train": 6650,
+        "calibration": 3429,
+        "validation": 3430
+      }
+    }
+  },
+  "next_gate": {
+    "task": "Minimal implementation of the frozen B0 and D0-D4 evaluator with host tests.",
+    "required_before_formal_execution": [
+      "formal implementation SHA",
+      "tracked execution config",
+      "host tests",
+      "server DIAGNOSTIC_ONLY smoke"
+    ],
+    "operator_implementation_authorized": true,
+    "formal_execution_authorized": false
+  }
+}
