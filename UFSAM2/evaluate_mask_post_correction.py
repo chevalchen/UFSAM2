@@ -146,6 +146,7 @@ def main(args: argparse.Namespace) -> None:
     model, adapter_keys = build_model_with_official_adapter(
         contract,
         adapter_path=args.adapter_checkpoint,
+        sam2_checkpoint_path=args.sam2_checkpoint,
         device=args.device,
     )
     checkpoint = torch.load(
@@ -295,6 +296,7 @@ if __name__ == "__main__":
         default="experiments/EXP-002/configs/stage_a_mask_refiner_contract.json",
     )
     parser.add_argument("--adapter_checkpoint", default=None)
+    parser.add_argument("--sam2_checkpoint", default=None)
     parser.add_argument("--refiner_checkpoint", required=True)
     parser.add_argument("--data_root", default=None)
     parser.add_argument("--device", default="cuda")

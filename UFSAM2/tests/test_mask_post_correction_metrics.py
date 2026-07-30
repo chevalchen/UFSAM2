@@ -1,8 +1,11 @@
 import unittest
 
+import torch
+
 from util.mask_post_correction_metrics import (
     BinaryCounts,
     EpisodeMaskRecord,
+    binary_counts,
     evaluate_frozen_rows,
     frozen_row_indices,
     paired_bootstrap,
@@ -59,6 +62,27 @@ class MaskPostCorrectionMetricsTest(unittest.TestCase):
     def test_record_json_round_trip(self):
         record = self.records[0]
         self.assertEqual(record_from_json(record_to_json(record)), record)
+
+    def test_binary_counts_accepts_cpu_tensors(self):
+        prediction = torch.tensor([[True, False], [True, False]])
+        target = torch.tensor([[1, 0], [0, 255]])
+        result = binary_counts(prediction, target)
+        self.assertEqual(result.foreground_intersection, 1.0)
+        self.assertEqual(result.foreground_union, 2.0)
+        self.assertEqual(result.background_intersection, 1.0)
+        self.assertEqual(result.background_union, 2.0)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required for mixed-device coverage")
+    def test_binary_counts_accepts_cuda_prediction_and_cpu_target(self):
+        prediction = torch.tensor(
+            [[True, False], [True, False]],
+            device="cuda",
+        )
+        target = torch.tensor([[1, 0], [0, 255]])
+        self.assertEqual(
+            binary_counts(prediction, target),
+            BinaryCounts(1.0, 1.0, 2.0, 2.0),
+        )
 
 
 if __name__ == "__main__":

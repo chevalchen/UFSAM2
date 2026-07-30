@@ -112,15 +112,29 @@ def build_model_with_official_adapter(
     contract: Mapping[str, Any],
     *,
     adapter_path: str | None,
+    sam2_checkpoint_path: str | None,
     device: str,
 ) -> tuple[SANSA, list[str]]:
     args = dataset_args_from_contract(contract)
+    if sam2_checkpoint_path is None:
+        raise ValueError(
+            "EXP-002 formal execution requires an explicit SAM2 base checkpoint path."
+        )
+    resolved_sam2_checkpoint = Path(sam2_checkpoint_path)
+    expected_sam2_hash = contract["baseline"]["sam2_large_base_weight_sha256"]
+    actual_sam2_hash = file_sha256(resolved_sam2_checkpoint)
+    if actual_sam2_hash != expected_sam2_hash:
+        raise RuntimeError(
+            "SAM2 base checkpoint SHA256 mismatch: "
+            f"expected {expected_sam2_hash}, found {actual_sam2_hash}."
+        )
     model = build_sansa(
         sam2_version=args.sam2_version,
         adaptformer_stages=args.adaptformer_stages,
         channel_factor=args.channel_factor,
         device=device,
         mask_post_correction=True,
+        sam2_checkpoint=str(resolved_sam2_checkpoint),
     )
     expected_adapter = contract["baseline"]["official_adapter"]
     resolved_adapter_path = Path(adapter_path or expected_adapter["path"])

@@ -20,6 +20,13 @@ EXECUTION_PATH = (
     / "configs"
     / "stage_a_mask_refiner_execution.json"
 )
+EXECUTION_V2_PATH = (
+    REPOSITORY_ROOT
+    / "experiments"
+    / "EXP-002"
+    / "configs"
+    / "stage_a_mask_refiner_execution_v2.json"
+)
 
 
 class Exp002ContractBindingTest(unittest.TestCase):
@@ -63,6 +70,30 @@ class Exp002ContractBindingTest(unittest.TestCase):
             execution["evaluation"]["rows"],
             ["B0", "B1", "B8_r25", "B8_r50", "B8_r75", "B8_positive"],
         )
+        self.assertTrue(all(execution["disabled_interventions"].values()))
+
+    def test_execution_v2_preserves_scientific_contract_and_fixes_runtime(self):
+        execution = json.loads(EXECUTION_V2_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(execution["schema_version"], 2)
+        self.assertTrue(execution["execution_ready"])
+        self.assertEqual(execution["research_contract"]["sha256"], CONTRACT_SHA256)
+        self.assertTrue(
+            all(
+                not fix["scientific_variable_changed"]
+                for fix in execution["implementation_fixes"]
+            )
+        )
+        self.assertEqual(
+            execution["base_model"]["sam2_large_base_weights"]["path"],
+            "/data6/chensq/UFSAM2/UFSAM2/pretrain/sam2_hiera_large.pt",
+        )
+        for argv_name in ("formal_training_argv", "formal_evaluation_argv"):
+            argv = execution["execution"][argv_name]
+            self.assertIn("--sam2_checkpoint", argv)
+            self.assertIn(
+                "/data6/chensq/UFSAM2/UFSAM2/pretrain/sam2_hiera_large.pt",
+                argv,
+            )
         self.assertTrue(all(execution["disabled_interventions"].values()))
 
 

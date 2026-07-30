@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from hydra import compose, initialize
@@ -298,11 +298,17 @@ def build_sansa(
     channel_factor: float = 0.3,
     device: str = 'cuda',
     mask_post_correction: bool = False,
+    sam2_checkpoint: Optional[str] = None,
 ) -> SANSA:
     assert sam2_version in SAM2_PATHS_CONFIG.keys(), f'wrong argument sam2_version: {sam2_version}'
     
-    sam2_weights, sam2_config = SAM2_PATHS_CONFIG[sam2_version]
+    default_sam2_weights, sam2_config = SAM2_PATHS_CONFIG[sam2_version]
+    sam2_weights = sam2_checkpoint or default_sam2_weights
     if not os.path.isfile(sam2_weights):
+        if sam2_checkpoint is not None:
+            raise FileNotFoundError(
+                f"Explicit SAM2 checkpoint does not exist: {sam2_weights}"
+            )
         import py3_wget
 
         print(f"Downloading SAM2-{sam2_version}")

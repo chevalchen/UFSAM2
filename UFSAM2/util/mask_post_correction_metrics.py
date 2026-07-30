@@ -30,8 +30,13 @@ class EpisodeMaskRecord:
 
 def binary_counts(prediction: Tensor, target: Tensor) -> BinaryCounts:
     """Return foreground/background intersection and union on valid pixels."""
-    prediction = prediction.detach().to(torch.bool).reshape(-1)
-    target_flat = target.detach().reshape(-1)
+    # Evaluation outputs live on the inference device while dataloader targets
+    # remain on CPU. Counts are scalar diagnostics, so normalize both tensors
+    # to CPU before constructing or applying the valid-pixel mask.
+    prediction = (
+        prediction.detach().to(device="cpu", dtype=torch.bool).reshape(-1)
+    )
+    target_flat = target.detach().to(device="cpu").reshape(-1)
     valid = target_flat != 255
     target_bool = target_flat.to(torch.bool)
     prediction = prediction[valid]
