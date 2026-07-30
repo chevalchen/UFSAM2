@@ -1,4 +1,5 @@
 import os
+from collections import OrderedDict
 from typing import Any, Dict, List, Tuple
 
 import py3_wget
@@ -14,6 +15,7 @@ from models.sam2.modeling.sam2_base import SAM2Base
 from models.sansa.model_utils import BackboneOutput, DecoderOutput
 from util.path_utils import SAM2_PATHS_CONFIG, SAM2_WEIGHTS_URL
 from util.promptable_utils import rescale_prompt
+from util.exp003_leave_one_out import compact_support_entries
 
 
 class SANSA(nn.Module):
@@ -65,6 +67,142 @@ class SANSA(nn.Module):
         masks = torch.cat(outputs["masks"])
         masks = F.interpolate(masks[None], size=orig_size[0], mode='bilinear', align_corners=False)[0]
         return {"pred_masks": masks}
+
+    def forward_leave_one_out(
+        self,
+        samples: torch.Tensor,
+        prompt_dict: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Run the frozen EXP-003 B0/D0...D4 primitive matrix from one cache.
+
+        The method is deliberately narrow: one 5-shot, mask-prompt episode is
+        encoded once.  Support memories are independently constructed from the
+        five ground-truth masks, then B0 and each compact four-support reference
+        sequence are decoded from the same backbone/support cache.
+        """
+        if samples.ndim != 5 or samples.shape[0] != 1:
+            raise ValueError(
+                "EXP-003 leave-one-out evaluation requires samples shaped "
+                "[1, 6, C, H, W]."
+            )
+        n_shots = int(prompt_dict.get("shots", -1))
+        if n_shots != 5 or samples.shape[1] != n_shots + 1:
+            raise ValueError(
+                "EXP-003 freezes exactly five supports followed by one query."
+            )
+        for support_idx in range(n_shots):
+            if prompt_dict[0][support_idx]["prompt_type"] != "mask":
+                raise ValueError("EXP-003 freezes ground-truth mask prompts.")
+
+        flat_samples, _, _, orig_sizes = self._preprocess_visual_features(
+            samples, self.sam.image_size
+        )
+        backbone_output = self._forward_backbone(flat_samples, orig_sizes)
+
+        support_entries = []
+        support_masks = []
+        for support_idx in range(n_shots):
+            frame_prompt = prompt_dict[0][support_idx]["prompt"]
+            support_masks.append(frame_prompt)
+            resized_prompt = rescale_prompt(
+                frame_prompt,
+                "mask",
+                orig_sizes[support_idx],
+                self.sam.image_size,
+            )
+            decoder_out = self.sam._use_mask_as_output(
+                backbone_output,
+                resized_prompt,
+                support_idx,
+            )
+            support_entries.append(
+                self._compute_memory_bank_dict(
+                    decoder_out,
+                    backbone_output,
+                    support_idx,
+                )
+            )
+
+        query_idx = n_shots
+        primitive_names = ("B0", "D0", "D1", "D2", "D3", "D4")
+        primitive_logits = OrderedDict()
+        for primitive_name in primitive_names:
+            drop_slot = None if primitive_name == "B0" else int(primitive_name[1:])
+            memory_bank = compact_support_entries(
+                support_entries,
+                drop_slot=drop_slot,
+            )
+            decoder_out = self._compute_decoder_out_w_mem(
+                backbone_output,
+                query_idx,
+                len(memory_bank),
+                memory_bank,
+            )
+            primitive_logits[primitive_name] = decoder_out.masks[0]
+
+        stacked_logits = torch.cat(
+            [primitive_logits[name] for name in primitive_names],
+            dim=0,
+        )
+        query_size = orig_sizes[query_idx]
+        stacked_logits = F.interpolate(
+            stacked_logits.unsqueeze(1),
+            size=query_size,
+            mode="bilinear",
+            align_corners=False,
+        )[:, 0]
+        primitive_logits = OrderedDict(
+            (name, stacked_logits[index])
+            for index, name in enumerate(primitive_names)
+        )
+        similarity_scores = self._support_query_similarity(
+            backbone_output,
+            torch.cat(support_masks, dim=0),
+            query_idx=query_idx,
+        )
+        return {
+            "primitive_masks": primitive_logits,
+            "similarity_scores": similarity_scores,
+        }
+
+    def _support_query_similarity(
+        self,
+        backbone_output: BackboneOutput,
+        support_masks: torch.Tensor,
+        *,
+        query_idx: int,
+    ) -> torch.Tensor:
+        """Compute the frozen final-feature masked-pool cosine similarities."""
+        support_features = torch.cat(
+            [
+                backbone_output.get_current_feats_x16(index)
+                for index in range(query_idx)
+            ],
+            dim=0,
+        )
+        query_feature = backbone_output.get_current_feats_x16(query_idx)
+        resized_masks = F.interpolate(
+            support_masks.float(),
+            size=support_features.shape[-2:],
+            mode="nearest",
+        )
+        denominators = resized_masks.flatten(2).sum(dim=2)
+        if torch.any(denominators <= 0):
+            raise ValueError(
+                "EXP-003 support descriptors require non-empty resized GT masks."
+            )
+        support_descriptors = (
+            (support_features * resized_masks).flatten(2).sum(dim=2)
+            / denominators
+        )
+        query_descriptor = query_feature.mean(dim=(-2, -1))
+        return F.cosine_similarity(
+            F.normalize(support_descriptors, p=2, dim=1),
+            F.normalize(query_descriptor, p=2, dim=1).expand_as(
+                support_descriptors
+            ),
+            dim=1,
+        )
 
     def _preprocess_visual_features(
         self, samples: torch.Tensor, image_size: int
@@ -219,11 +357,22 @@ class SANSA(nn.Module):
         return BackboneOutput(orig_size, vision_feats, vision_pos, sizes)
 
 
-def build_sansa(sam2_version: str = 'large', adaptformer_stages: List[int] = [2, 3], channel_factor: float = 0.3, device: str = 'cuda') -> SANSA:
+def build_sansa(
+    sam2_version: str = 'large',
+    adaptformer_stages: List[int] = [2, 3],
+    channel_factor: float = 0.3,
+    device: str = 'cuda',
+    sam2_checkpoint: str | None = None,
+) -> SANSA:
     assert sam2_version in SAM2_PATHS_CONFIG.keys(), f'wrong argument sam2_version: {sam2_version}'
     
-    sam2_weights, sam2_config = SAM2_PATHS_CONFIG[sam2_version]
+    default_sam2_weights, sam2_config = SAM2_PATHS_CONFIG[sam2_version]
+    sam2_weights = sam2_checkpoint or default_sam2_weights
     if not os.path.isfile(sam2_weights):
+        if sam2_checkpoint is not None:
+            raise FileNotFoundError(
+                f"Explicit SAM2 checkpoint does not exist: {sam2_checkpoint}"
+            )
         print(f"Downloading SAM2-{sam2_version}")
         py3_wget.download_file(SAM2_WEIGHTS_URL[sam2_version], sam2_weights)
 
