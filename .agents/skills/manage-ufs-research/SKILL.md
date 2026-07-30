@@ -91,6 +91,20 @@ the contract.
 
 ## Hand Off Between Local and Server
 
+- Freeze scientific decisions, not buggy source code. The hypothesis, causal variable, data,
+  checkpoint identity, training exposure, metrics, and decision thresholds are immutable after
+  preregistration; implementation defects discovered before or during smoke may be repaired.
+- A repair does not require a new Experiment ID when it only restores the already-frozen behavior
+  and changes no scientific variable. The host must classify the change, add a regression test,
+  create a new commit, version (rather than overwrite) any observed execution config, and assign
+  new smoke/formal run IDs.
+- Preserve every failed smoke and superseded SHA/config in the authoritative EXP document. Never
+  mix artifacts or metrics across implementation SHAs. If formal execution had already started,
+  rerun every causal row needed for the decision on the repaired SHA.
+- The execution-only server session still must not hot-fix its detached worktree. It reports the
+  blocker; the host fixes and signs a new SHA, after which the server resumes from a fresh detached
+  worktree. This separation protects provenance without turning implementation bugs into research
+  redesigns.
 - Use remote Git as the only code handoff between local and server. Do not copy working directories
   or use stash to transfer experiment state.
 - Treat the server as the only execution environment for formal metrics. Use local results only for
