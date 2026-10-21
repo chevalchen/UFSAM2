@@ -119,6 +119,9 @@ def main(args):
         env = dict(os.environ, CUDA_VISIBLE_DEVICES=selected, OMP_NUM_THREADS='4',
                    MKL_NUM_THREADS='4', PYTHONPATH=str(Path('UFSAM2').resolve()),
                    MPLCONFIGDIR=str(control / 'matplotlib'))
+        runtime_tmp = control / 'runtime_tmp'
+        runtime_tmp.mkdir()
+        env['TMPDIR'] = str(runtime_tmp)
         clean()
         status('GPU_TESTS_RUNNING', gpu=selected)
         execute([sys.executable, '-m', 'unittest', 'discover', '-s', 'UFSAM2/tests',

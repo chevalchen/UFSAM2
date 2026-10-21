@@ -264,6 +264,12 @@ def _evaluate(
     )
 
 
+def configure_evaluation_precision() -> None:
+    """Avoid TF32 batch-shape rounding differences in cached/reference paths."""
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+
+
 def main(args: argparse.Namespace) -> None:
     resolved, contract, resolved_path, original_path = load_resolved_contract(
         args.contract
@@ -299,6 +305,7 @@ def main(args: argparse.Namespace) -> None:
             )
     setup_logging(str(run_dir), console="info", rank=0)
     make_deterministic(int(contract["dataset"]["seed"]))
+    configure_evaluation_precision()
     device = torch.device(args.device)
 
     model, adapter_keys = build_frozen_model(
@@ -365,6 +372,10 @@ def main(args: argparse.Namespace) -> None:
             "sam2_checkpoint_sha256": file_sha256(args.sam2_checkpoint),
             "loaded_adapter_tensors": len(adapter_keys),
             "threshold": float(args.threshold),
+            "numerical_precision": {
+                "cuda_matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
+                "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
+            },
             "primitive_prediction_fingerprints": primitive_fingerprints,
             "exact_replay": {
                 "manifest_identity_verified": True,
