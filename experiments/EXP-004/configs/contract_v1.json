@@ -1,0 +1,101 @@
+{
+  "experiment_id": "EXP-004",
+  "schema_version": 1,
+  "accepted_parent": "000d4507f16028871c58a4f17a59a038beb073d2",
+  "formal_execution_authorized": false,
+  "manifest": {
+    "path": "experiments/EXP-004/episodes/coco_fold0_5shot_fresh_seed0.json",
+    "sha256": "5284c543f4294adeba3e1a7b7bc998cfe9b9920505024c26ee2708d76d4870f2"
+  },
+  "exclusions": {
+    "path": "experiments/EXP-004/episodes/prior_validation_exclusions.json",
+    "sha256": "f0f02e8799f41f33cdfc8981cf8e87efb5773ba69a2f29a3dbbe33a459b2463f"
+  },
+  "data_root": "/data6/chensq/datasets/COCO2014",
+  "adapter": {
+    "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/coco-20i-4/adapter_coco_fold0.pth",
+    "sha256": "b02b96f30ee558c37ef4fc5f889e90772dafb117e42b3fcf0945000220bc57e5"
+  },
+  "sam2": {
+    "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/sam2_hiera_large.pt",
+    "sha256": "7442e4e9b732a508f80e141e7c2913437a3610ee0c77381a66658c3a445df87b"
+  },
+  "model": {
+    "version": "large",
+    "adaptformer_stages": [
+      2,
+      3
+    ],
+    "channel_factor": 0.3,
+    "width": 32,
+    "groups": 8,
+    "blocks": 2,
+    "k": 4,
+    "kmeans_iterations": 10,
+    "temperature": 1.0,
+    "scale": 0.1,
+    "block_order": "depthwise3x3_bias_pointwise1x1_bias_groupnorm8_gelu",
+    "projection_bias": true,
+    "output_init": "zero",
+    "global_prototype": "normalize_mean_raw_foreground_tokens",
+    "local_prototype": "unit_spherical_centers",
+    "empty_foreground": "hard_stop",
+    "short_foreground": "cyclic_repeat_FPS_centers_then_10_updates"
+  },
+  "training": {
+    "rows": [
+      "C1",
+      "C2",
+      "C3"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "steps": 2400,
+    "batch_size": 1,
+    "lr": 0.0001,
+    "weight_decay": 0.01,
+    "optimizer": "AdamW",
+    "betas": [
+      0.9,
+      0.999
+    ],
+    "eps": 1e-08,
+    "calibration_interval": 600,
+    "loss": "mean_BCEWithLogits_plus_soft_Dice",
+    "dice_smoothing": 1.0,
+    "checkpoint_metric": "aggregate_class_miou",
+    "tie_break": "earliest_step",
+    "order": "manifest_order_twice"
+  },
+  "precision": {
+    "dtype": "float32",
+    "autocast": false,
+    "tf32": false,
+    "cudnn_deterministic": true,
+    "cudnn_benchmark": false
+  },
+  "metrics": {
+    "threshold_probability": 0.5,
+    "threshold_comparison": "strict_greater",
+    "iou_empty_union": 0.0,
+    "worst_decile": "mean_lowest_ceil_10pct_episode_fg_iou",
+    "primary": "C3-C1",
+    "min_gain_pp": 0.5,
+    "max_fb_drop_pp": 0.2,
+    "max_worst_drop_pp": 0.5,
+    "bootstrap": 10000,
+    "bootstrap_seed": 0,
+    "bootstrap_unit": "paired_episode_fg_effect_averaged_over_training_seeds",
+    "oracle": "per_episode_positive_fg_iou_gain_C3_over_C0_ties_baseline"
+  },
+  "technical_pilot": {
+    "partition": "train",
+    "episodes": 2,
+    "steps_per_row": 2,
+    "seed": 0,
+    "formal_evidence": false
+  }
+}

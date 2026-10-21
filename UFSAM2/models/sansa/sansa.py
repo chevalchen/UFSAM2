@@ -1,7 +1,6 @@
 import os
 from typing import Any, Dict, List, Tuple
 
-import py3_wget
 import torch
 from hydra import compose, initialize
 from hydra.utils import instantiate
@@ -219,11 +218,16 @@ class SANSA(nn.Module):
         return BackboneOutput(orig_size, vision_feats, vision_pos, sizes)
 
 
-def build_sansa(sam2_version: str = 'large', adaptformer_stages: List[int] = [2, 3], channel_factor: float = 0.3, device: str = 'cuda') -> SANSA:
+def build_sansa(sam2_version: str = 'large', adaptformer_stages: List[int] = [2, 3], channel_factor: float = 0.3, device: str = 'cuda', sam2_checkpoint: str | None = None) -> SANSA:
     assert sam2_version in SAM2_PATHS_CONFIG.keys(), f'wrong argument sam2_version: {sam2_version}'
     
     sam2_weights, sam2_config = SAM2_PATHS_CONFIG[sam2_version]
+    if sam2_checkpoint is not None:
+        sam2_weights = sam2_checkpoint
+        if not os.path.isfile(sam2_weights):
+            raise FileNotFoundError(sam2_weights)
     if not os.path.isfile(sam2_weights):
+        import py3_wget
         print(f"Downloading SAM2-{sam2_version}")
         py3_wget.download_file(SAM2_WEIGHTS_URL[sam2_version], sam2_weights)
 

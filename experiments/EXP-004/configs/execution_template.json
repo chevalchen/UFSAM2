@@ -1,0 +1,7 @@
+{
+  "experiment_id": "EXP-004",
+  "authorized": false,
+  "implementation_sha": "REPLACE_WITH_VERIFIED_IMPLEMENTATION_COMMIT",
+  "contract_sha256": "2e48ef99362a18d9e33fc00ba7e1c9bbc4ce0fa6b2e5b47e87a1ac8fd8acae40",
+  "note": "Template only. After formal execution is requested, create a new tracked signed execution file, push the experiment branch, and execute from a clean detached worktree. Never edit contract_v1.json."
+}
