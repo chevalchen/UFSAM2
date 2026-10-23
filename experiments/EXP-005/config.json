@@ -1,0 +1,41 @@
+{
+  "experiment": "EXP-005",
+  "adapter": {
+    "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/coco-20i-4/adapter_coco_fold0.pth",
+    "sha256": "b02b96f30ee558c37ef4fc5f889e90772dafb117e42b3fcf0945000220bc57e5"
+  },
+  "sam2": {
+    "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/sam2_hiera_large.pt",
+    "sha256": "7442e4e9b732a508f80e141e7c2913437a3610ee0c77381a66658c3a445df87b"
+  },
+  "manifest": {
+    "path": "experiments/EXP-005/episodes.json",
+    "sha256": "29b7a7a1afc19b299fbaa1dbed0fcacc2dab9012ada9ab184c69b6e82347b176"
+  },
+  "steps": 2400,
+  "calibration_interval": 600,
+  "lr": 0.0001,
+  "weight_decay": 0.01,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "modes": [
+    "uniform",
+    "uncertainty"
+  ],
+  "dtype": "float32",
+  "tf32": false,
+  "graph": {
+    "grid": 16,
+    "neighbors": 8,
+    "channels": 64,
+    "layers": 2,
+    "kl_weight": 0.0001,
+    "consistency_weight": 0.1,
+    "logvar_consistency_weight": 0.1,
+    "mask_probability": 0.1,
+    "residual_scale": 0.1
+  }
+}
