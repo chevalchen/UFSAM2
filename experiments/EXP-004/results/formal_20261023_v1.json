@@ -1,0 +1,315 @@
+{
+  "evidence": "VERIFIED",
+  "decision": "DROP",
+  "execution_sha": "6ffc9f0e4be4ffa3f1920b75bd1e20716283b280",
+  "artifact_root": "/data6/chensq/UFSAM2_runs/EXP-004/formal_20261023_v1",
+  "artifact_sha256": {
+    "locked.json": "1086e919775f094e74ee9d9506dc97e15e020485a224101840f2a1263f9a28a5",
+    "validation/completed.json": "00a9293b260c7db1e479262b524f0cc168b2f2f49e83696281e6157250f9895d",
+    "validation/metrics.json": "1c6f9fc4e1bb73c6b796fb4e97b4c099e297fc46c9a1d721400751a94edc3768",
+    "validation/paired.jsonl": "7ef63cd13a0ac993124aa36da9dd4e7ace98a5758d4fb8bab8391db7714d8c3e",
+    "validation/costs.json": "070e1193ccca6c2de96a87350d4fbccc60ae2d1db608f50e84dedf1e3dbfdf6f"
+  },
+  "audit": {
+    "training_runs": 9,
+    "steps_per_run": 2400,
+    "calibration_episodes_per_checkpoint": 600,
+    "calibration_checkpoints_per_run": 4,
+    "validation_episodes": 600,
+    "all_selected_steps": 2400,
+    "initialization_matched": true,
+    "hashes_verified": true,
+    "paired_metrics_recomputed": true,
+    "oracle_selection_verified": true
+  },
+  "metrics": {
+    "decision": "DROP",
+    "rows": {
+      "C0": {
+        "class_miou": 76.1738254219726,
+        "fb_iou": 88.11953026615235,
+        "worst_decile": 19.271106405559753,
+        "mean_episode_fg_iou": 75.5512091029829
+      },
+      "C1/0": {
+        "class_miou": 76.2247369700406,
+        "fb_iou": 88.19952320993426,
+        "worst_decile": 19.440018768202414,
+        "mean_episode_fg_iou": 75.7256617400584
+      },
+      "C1/1": {
+        "class_miou": 76.35731889732429,
+        "fb_iou": 88.29799118876464,
+        "worst_decile": 19.341285507370905,
+        "mean_episode_fg_iou": 75.75707994553231
+      },
+      "C1/2": {
+        "class_miou": 76.32109314400182,
+        "fb_iou": 88.26131100266825,
+        "worst_decile": 19.312191060316287,
+        "mean_episode_fg_iou": 75.74707784293405
+      },
+      "C2/0": {
+        "class_miou": 76.21001955051032,
+        "fb_iou": 88.1683008309153,
+        "worst_decile": 19.255969405775023,
+        "mean_episode_fg_iou": 75.69852869745988
+      },
+      "C2/1": {
+        "class_miou": 76.32295118372731,
+        "fb_iou": 88.27309216651882,
+        "worst_decile": 19.28104034425819,
+        "mean_episode_fg_iou": 75.73713798583182
+      },
+      "C2/2": {
+        "class_miou": 76.2514493793531,
+        "fb_iou": 88.2249171748622,
+        "worst_decile": 19.5605039536921,
+        "mean_episode_fg_iou": 75.74182094493162
+      },
+      "C3/0": {
+        "class_miou": 76.22699035146005,
+        "fb_iou": 88.20063690447004,
+        "worst_decile": 19.43070733803161,
+        "mean_episode_fg_iou": 75.7233269934749
+      },
+      "C3/1": {
+        "class_miou": 76.35891582136048,
+        "fb_iou": 88.29910237349937,
+        "worst_decile": 19.348002921362557,
+        "mean_episode_fg_iou": 75.75841198975635
+      },
+      "C3/2": {
+        "class_miou": 76.32253508421041,
+        "fb_iou": 88.2622531263731,
+        "worst_decile": 19.312377319254672,
+        "mean_episode_fg_iou": 75.74724164534629
+      },
+      "C4/0": {
+        "class_miou": 76.22694017545916,
+        "fb_iou": 88.20062632059665,
+        "worst_decile": 19.430663201346416,
+        "mean_episode_fg_iou": 75.72329881982567
+      },
+      "C4/1": {
+        "class_miou": 76.35894682842408,
+        "fb_iou": 88.29912033998086,
+        "worst_decile": 19.348067242161463,
+        "mean_episode_fg_iou": 75.75842290850173
+      },
+      "C4/2": {
+        "class_miou": 76.32258489929087,
+        "fb_iou": 88.26227643506488,
+        "worst_decile": 19.312396083398326,
+        "mean_episode_fg_iou": 75.74729787359988
+      },
+      "C8/0": {
+        "class_miou": 76.6498459157612,
+        "fb_iou": 88.39672686888996,
+        "worst_decile": 20.130024447589044,
+        "mean_episode_fg_iou": 76.11654540622368
+      },
+      "C8/1": {
+        "class_miou": 76.73552056344597,
+        "fb_iou": 88.4754942156789,
+        "worst_decile": 20.031858311901747,
+        "mean_episode_fg_iou": 76.13277256439281
+      },
+      "C8/2": {
+        "class_miou": 76.73767981332033,
+        "fb_iou": 88.45894657943691,
+        "worst_decile": 19.938137689888748,
+        "mean_episode_fg_iou": 76.13030218990062
+      }
+    },
+    "seed_summary": {
+      "C1": {
+        "class_miou": {
+          "mean": 76.30104967045557,
+          "sd": 0.06852588915449581
+        },
+        "fb_iou": {
+          "mean": 88.25294180045573,
+          "sd": 0.04976462973830924
+        },
+        "worst_decile": {
+          "mean": 19.364498445296537,
+          "sd": 0.06700082903374849
+        },
+        "mean_episode_fg_iou": {
+          "mean": 75.74327317617492,
+          "sd": 0.016050935351600196
+        }
+      },
+      "C2": {
+        "class_miou": {
+          "mean": 76.26147337119691,
+          "sd": 0.05712922854920792
+        },
+        "fb_iou": {
+          "mean": 88.22210339076544,
+          "sd": 0.05245230252429243
+        },
+        "worst_decile": {
+          "mean": 19.365837901241772,
+          "sd": 0.16905115193796227
+        },
+        "mean_episode_fg_iou": {
+          "mean": 75.72582920940776,
+          "sd": 0.023758598252957792
+        }
+      },
+      "C3": {
+        "class_miou": {
+          "mean": 76.30281375234365,
+          "sd": 0.06813795271405047
+        },
+        "fb_iou": {
+          "mean": 88.25399746811416,
+          "sd": 0.049749161477930424
+        },
+        "worst_decile": {
+          "mean": 19.363695859549612,
+          "sd": 0.06070584459213685
+        },
+        "mean_episode_fg_iou": {
+          "mean": 75.74299354285918,
+          "sd": 0.017924118446193547
+        }
+      },
+      "C4": {
+        "class_miou": {
+          "mean": 76.3028239677247,
+          "sd": 0.06818584837796013
+        },
+        "fb_iou": {
+          "mean": 88.25400769854745,
+          "sd": 0.04976491702303777
+        },
+        "worst_decile": {
+          "mean": 19.36370884230207,
+          "sd": 0.06066524984005088
+        },
+        "mean_episode_fg_iou": {
+          "mean": 75.74300653397576,
+          "sd": 0.01795096371112175
+        }
+      },
+      "C8": {
+        "class_miou": {
+          "mean": 76.70768209750916,
+          "sd": 0.050099236814472384
+        },
+        "fb_iou": {
+          "mean": 88.44372255466858,
+          "sd": 0.0415319386454872
+        },
+        "worst_decile": {
+          "mean": 20.03334014979318,
+          "sd": 0.09595196104215564
+        },
+        "mean_episode_fg_iou": {
+          "mean": 76.1265400535057,
+          "sd": 0.008743307054653586
+        }
+      }
+    },
+    "comparisons": {
+      "C3-C1": {
+        "mean_class_miou_delta_pp": 0.0017640818880787872,
+        "seed_delta_pp": [
+          0.0022533814194503066,
+          0.001596924036192604,
+          0.0014419402085934507
+        ],
+        "seed_delta_sd_pp": 0.00043077316566217583,
+        "episode_effect_ci95_pp": [
+          -0.0021313359682578223,
+          0.0013897263784193106
+        ],
+        "guards": [
+          {
+            "seed": 0,
+            "fb_delta_pp": 0.0011136945357890227,
+            "worst_delta_pp": -0.009311430170804158
+          },
+          {
+            "seed": 1,
+            "fb_delta_pp": 0.0011111847347251569,
+            "worst_delta_pp": 0.006717413991651711
+          },
+          {
+            "seed": 2,
+            "fb_delta_pp": 0.0009421237048456987,
+            "worst_delta_pp": 0.0001862589383847535
+          }
+        ],
+        "passed": false
+      },
+      "C3-C2": {
+        "mean_class_miou_delta_pp": 0.04134038114673425,
+        "seed_delta_pp": [
+          0.016970800949721365,
+          0.03596463763317104,
+          0.07108570485731036
+        ],
+        "seed_delta_sd_pp": 0.02745504816922765,
+        "episode_effect_ci95_pp": [
+          -0.018093001985531564,
+          0.05852799963511105
+        ],
+        "guards": [
+          {
+            "seed": 0,
+            "fb_delta_pp": 0.032336073554745326,
+            "worst_delta_pp": 0.17473793225658696
+          },
+          {
+            "seed": 1,
+            "fb_delta_pp": 0.026010206980544126,
+            "worst_delta_pp": 0.06696257710436626
+          },
+          {
+            "seed": 2,
+            "fb_delta_pp": 0.0373359515108973,
+            "worst_delta_pp": -0.24812663443742622
+          }
+        ],
+        "passed": false
+      },
+      "C3-C0": {
+        "mean_class_miou_delta_pp": 0.12898833037105342,
+        "seed_delta_pp": [
+          0.05316492948745122,
+          0.18509039938788874,
+          0.14870966223782034
+        ],
+        "seed_delta_sd_pp": 0.06813795271405047,
+        "episode_effect_ci95_pp": [
+          -0.05966010426696536,
+          0.45789671441296975
+        ],
+        "guards": [
+          {
+            "seed": 0,
+            "fb_delta_pp": 0.08110663831769216,
+            "worst_delta_pp": 0.15960093247185725
+          },
+          {
+            "seed": 1,
+            "fb_delta_pp": 0.17957210734701334,
+            "worst_delta_pp": 0.07689651580280454
+          },
+          {
+            "seed": 2,
+            "fb_delta_pp": 0.14272286022074354,
+            "worst_delta_pp": 0.04127091369491964
+          }
+        ],
+        "passed": false
+      }
+    },
+    "ci_scope": "episode sampling only; neither aggregate-class-mIoU nor training-seed CI",
+    "oracle_label": "C8 uses query GT, diagnostic only"
+  }
+}
