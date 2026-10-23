@@ -1,0 +1,8 @@
+{
+  "experiment_id": "EXP-004",
+  "authorized": true,
+  "implementation_sha": "a62ad1e2587b2210ed9275f79a61fa2fbddd6f7b",
+  "contract_sha256": "2e48ef99362a18d9e33fc00ba7e1c9bbc4ce0fa6b2e5b47e87a1ac8fd8acae40",
+  "note": "Owner explicitly requested formal training. Two independent GPU lanes; all nine runs retain the frozen budget; lock and validate only after all complete.",
+  "owner_authorization_date": "2026-10-23"
+}
