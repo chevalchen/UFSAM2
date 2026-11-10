@@ -16,3 +16,4 @@
 | `EXP-004` | 局部原型条件语义 Residual | `DECIDED / DROP` | `DROP`：完整有效 evidence 未通过冻结的效果与 CI 门槛；局部原型没有证明优于全局原型和 generic residual，停止当前算子推进。 | [`experiments/EXP-004.md`](experiments/EXP-004.md) | Accepted parent `000d4507f16028871c58a4f17a59a038beb073d2`; implementation `a62ad1e2587b2210ed9275f79a61fa2fbddd6f7b`; execution `6ffc9f0e4be4ffa3f1920b75bd1e20716283b280` |
 
 | `EXP-005` | 不确定性引导的 Support 图特征增强 | `DECIDED / DROP` | `DROP`：三数据集均未通过预设效果与配对 CI 门槛；G1 与均匀/打乱权重几乎一致，可靠性对应关系未获支持。 | [`experiments/EXP-005.md`](experiments/EXP-005.md) | Implementation/execution `256662e0241863fe749e9fef8bf3dcad93723bd0`。 |
+| `EXP-006` | SANSA 测试时梯度自提示细化 | `PROPOSED` | 待验证 | [`experiments/EXP-006.md`](experiments/EXP-006.md) | Parent `964f989`; SANSA reference import `000d450`; historical MTP `219ac83` |
