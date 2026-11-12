@@ -1,0 +1,43 @@
+{
+  "adapter": {
+    "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/coco-20i-4/adapter_coco_fold0.pth",
+    "sha256": "b02b96f30ee558c37ef4fc5f889e90772dafb117e42b3fcf0945000220bc57e5"
+  },
+  "sam2": {
+    "path": "/data6/chensq/UFSAM2/UFSAM2/pretrain/sam2_hiera_large.pt",
+    "sha256": "7442e4e9b732a508f80e141e7c2913437a3610ee0c77381a66658c3a445df87b"
+  },
+  "experiment": "EXP-006",
+  "version": 1,
+  "manifest": {
+    "path": "experiments/EXP-006/episodes_v1.json",
+    "sha256": "28c5325ae194bef4ffb22f3df9d5308fa3298054b1223a718d6e67ee55ebb46f"
+  },
+  "seed": 6006,
+  "precision": "float32",
+  "tf32": false,
+  "shots": [
+    1,
+    5
+  ],
+  "gate": false,
+  "second_round": "replace",
+  "positive_threshold": 0.65,
+  "negative_threshold": 0.35,
+  "erode_kernel": 9,
+  "dedup_radius_lowres": 8,
+  "anchors_per_domain": 32,
+  "anchor_grid": 16,
+  "gradient_objective": "mean(fg_anchor_logits)-mean(bg_anchor_logits)",
+  "gradient_rank": "L2-channel-gradient interpolated to lowres; rank only inside MTP domains",
+  "rows": [
+    "B0",
+    "S1",
+    "S2",
+    "G2",
+    "G2shuffle",
+    "H2"
+  ],
+  "gt_diagnostic_episodes": 24,
+  "bootstrap_iterations": 2000
+}
