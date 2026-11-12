@@ -15,7 +15,9 @@ from torch.nn import functional as F
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('output');p.add_argument('--verify-cache',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('output');p.add_argument('--verify-cache',action='store_true')
+    p.add_argument('--device',default='cuda:1',help='Use original interpolation backend for exact near-zero threshold replay')
+    a=p.parse_args()
     out=Path(a.output);report={};compact=[];torch.set_num_threads(4)
     for shots in [1,5]:
         path=out/f'paired_{shots}shot.jsonl';records=[json.loads(s) for s in path.read_text().splitlines()]
@@ -34,9 +36,9 @@ def main():
                 compact.append([shots,r['index'],r['episode_id'],v['query_id'],v['class_id'],row,*v['counts'],*v['boundary'],v['quality'],v.get('selected','')])
             if a.verify_cache:
                 with np.load(out/'cache'/f"{shots}shot_{r['index']:03d}.npz") as cache:
-                    target=torch.from_numpy(cache['target'])
+                    target=torch.from_numpy(cache['target']).to(a.device)
                     for row in ['B0','S1','S2','G2','G2shuffle','H2']:
-                        z=F.interpolate(torch.from_numpy(cache[row]),target.shape,mode='bilinear',align_corners=False)[0,0]
+                        z=F.interpolate(torch.from_numpy(cache[row]).to(a.device),target.shape,mode='bilinear',align_corners=False)[0,0]
                         assert pixel_counts(z,target)==rows[row]['counts'],(shots,r['index'],row)
                         cache_checks+=1
         point_stats={}
