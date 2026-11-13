@@ -28,7 +28,7 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fold", type=int, default=0, help="Training fold (if applicable).")
 
     # SAM2 / Backbone
-    parser.add_argument("--sam2_version", type=str, default="large", choices=["tiny", "base", "large"], help="Version of SAM2 image encoder.")
+    parser.add_argument("--sam2_version", type=str, default="large", choices=["tiny", "small", "base", "large"], help="Version of SAM2 image encoder.")
     parser.add_argument("--adaptformer_stages", nargs="+", type=int, default=[-1], help="Adapter/AdaptFormer stages to enable (model-specific).")
     parser.add_argument("--channel_factor", type=float, default=0.3, help="Adapter channel scaling factor (model-specific).")
 
