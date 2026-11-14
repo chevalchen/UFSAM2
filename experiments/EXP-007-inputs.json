@@ -1,0 +1,114 @@
+{
+  "1": {
+    "dataset": "COCO2014",
+    "fold": 0,
+    "split": "trn",
+    "episodes": [
+      {
+        "query": "train2014/COCO_train2014_000000329797.jpg",
+        "supports": [
+          "train2014/COCO_train2014_000000006539.jpg"
+        ],
+        "class_id": 33
+      },
+      {
+        "query": "train2014/COCO_train2014_000000477169.jpg",
+        "supports": [
+          "train2014/COCO_train2014_000000492583.jpg"
+        ],
+        "class_id": 31
+      },
+      {
+        "query": "train2014/COCO_train2014_000000068688.jpg",
+        "supports": [
+          "train2014/COCO_train2014_000000456041.jpg"
+        ],
+        "class_id": 73
+      },
+      {
+        "query": "train2014/COCO_train2014_000000061854.jpg",
+        "supports": [
+          "train2014/COCO_train2014_000000103033.jpg"
+        ],
+        "class_id": 42
+      }
+    ],
+    "tensor_sha256": [
+      "a548d9494c676ad5212dfdc7a58a3a5d749487665c3ef930ecaae20a5fb5572d",
+      "330b27cb12b129ab430c214cfdde8a2d6e5f309d5990e32af22133cb749d9fec",
+      "b509e96ab6ca5e3bd7f93ff7620d897e407596a7df4eff75fb9b8aaad1f9e170",
+      "c532ca7ac79ba690abe39f68e072a0c2d1988f5e4e21cd3cbc31bf83e9cd8210"
+    ],
+    "split_sha256": "5a94e113d8c150a7e20723360dd9779eaa1305ccddc28dff4501e29ed3df5c45",
+    "transform": "Compose(\n    Resize(size=(640, 640), interpolation=bilinear, max_size=None, antialias=True)\n    ToTensor()\n    Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])\n)",
+    "input_size": 640,
+    "crop": null,
+    "replay": "four episodes, seeds 123..126 (batch=1), cyclic",
+    "workers": 0,
+    "pin_memory": false
+  },
+  "5": {
+    "dataset": "COCO2014",
+    "fold": 0,
+    "split": "trn",
+    "episodes": [
+      {
+        "query": "train2014/COCO_train2014_000000329797.jpg",
+        "supports": [
+          "train2014/COCO_train2014_000000006539.jpg",
+          "train2014/COCO_train2014_000000394089.jpg",
+          "train2014/COCO_train2014_000000268418.jpg",
+          "train2014/COCO_train2014_000000180970.jpg",
+          "train2014/COCO_train2014_000000575331.jpg"
+        ],
+        "class_id": 33
+      },
+      {
+        "query": "train2014/COCO_train2014_000000477169.jpg",
+        "supports": [
+          "train2014/COCO_train2014_000000492583.jpg",
+          "train2014/COCO_train2014_000000095019.jpg",
+          "train2014/COCO_train2014_000000163506.jpg",
+          "train2014/COCO_train2014_000000574248.jpg",
+          "train2014/COCO_train2014_000000522461.jpg"
+        ],
+        "class_id": 31
+      },
+      {
+        "query": "train2014/COCO_train2014_000000068688.jpg",
+        "supports": [
+          "train2014/COCO_train2014_000000456041.jpg",
+          "train2014/COCO_train2014_000000304950.jpg",
+          "train2014/COCO_train2014_000000190945.jpg",
+          "train2014/COCO_train2014_000000336839.jpg",
+          "train2014/COCO_train2014_000000204339.jpg"
+        ],
+        "class_id": 73
+      },
+      {
+        "query": "train2014/COCO_train2014_000000061854.jpg",
+        "supports": [
+          "train2014/COCO_train2014_000000103033.jpg",
+          "train2014/COCO_train2014_000000508821.jpg",
+          "train2014/COCO_train2014_000000245978.jpg",
+          "train2014/COCO_train2014_000000431504.jpg",
+          "train2014/COCO_train2014_000000399461.jpg"
+        ],
+        "class_id": 42
+      }
+    ],
+    "tensor_sha256": [
+      "bba80cf764a48cc389004980b4265e43f9e3a0523f4c1252fd198322356afbf6",
+      "e6827c20863405d40e90763f7bacef2f12f7948899f48e03d48964dd33c7482a",
+      "1eeff49c95feba4193dc87016c12d87fd8215c9b75963793327b66a593eced0d",
+      "ae5ea40acff208e3f235b10000215d5bfdbc0ae919bc78ca1c0f99f020acf4e0"
+    ],
+    "split_sha256": "5a94e113d8c150a7e20723360dd9779eaa1305ccddc28dff4501e29ed3df5c45",
+    "transform": "Compose(\n    Resize(size=(640, 640), interpolation=bilinear, max_size=None, antialias=True)\n    ToTensor()\n    Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])\n)",
+    "input_size": 640,
+    "crop": null,
+    "replay": "four episodes, seeds 123..126 (batch=1), cyclic",
+    "workers": 0,
+    "pin_memory": false
+  }
+}
