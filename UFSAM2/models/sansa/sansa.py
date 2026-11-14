@@ -244,8 +244,17 @@ def build_sansa(sam2_version: str = 'large', adaptformer_stages: List[int] = [2,
         sam = instantiate(cfg.model, _recursive_=True)
 
     state_dict = torch.load(sam2_weights, map_location="cpu", weights_only=False)["model"]
-    sam.load_state_dict(state_dict, strict=False)
+    incompatible = sam.load_state_dict(state_dict, strict=False)
+    # SANSA adds adapters and deliberately disables SAM2 object-score prediction.
+    bad_missing = [k for k in incompatible.missing_keys if '.adapter.' not in k]
+    bad_unexpected = [k for k in incompatible.unexpected_keys
+                      if k not in ('no_obj_ptr', 'sam_mask_decoder.obj_score_token.weight') and not k.startswith('sam_mask_decoder.pred_obj_score_head.')]
+    if bad_missing or bad_unexpected:
+        raise RuntimeError(f'Invalid SAM2 checkpoint: missing={bad_missing}, unexpected={bad_unexpected}')
     model = SANSA(sam=sam, device=torch.device(device))
+
+    model.checkpoint_load_report = dict(missing_keys=incompatible.missing_keys,
+                                        unexpected_keys=incompatible.unexpected_keys)
 
     # freeze everything except adapters
     for name, p in model.named_parameters():
