@@ -32,6 +32,8 @@ def get_args_parser() -> argparse.ArgumentParser:
     parser.add_argument("--adaptformer_stages", nargs="+", type=int, default=[-1], help="Adapter/AdaptFormer stages to enable (model-specific).")
     parser.add_argument("--channel_factor", type=float, default=0.3, help="Adapter channel scaling factor (model-specific).")
 
+    parser.add_argument("--sam2_checkpoint", default=None, help="Explicit base checkpoint path.")
+
     # Optimization
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay.")

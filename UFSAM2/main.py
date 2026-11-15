@@ -9,6 +9,7 @@ import util.misc as utils
 from util.commons import resume_from_checkpoint, adapter_state_dict
 import datasets.samplers as samplers
 from datasets import build_dataset
+from datasets.transform_utils import collate_training_episodes
 from models.sansa.sansa import build_sansa
 from inference_fss import eval_fss
 from engine import train_one_epoch
@@ -25,7 +26,7 @@ def main(args):
     print(args)
 
     device = torch.device(args.device)
-    model = build_sansa(args.sam2_version, args.adaptformer_stages, args.channel_factor, args.device)
+    model = build_sansa(args.sam2_version, args.adaptformer_stages, args.channel_factor, args.device, sam2_checkpoint=args.sam2_checkpoint)
     model.to(device)
 
     model_without_ddp = model
@@ -58,7 +59,7 @@ def main(args):
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
 
     batch_sampler_train = torch.utils.data.BatchSampler(sampler_train, args.batch_size, drop_last=True)
-    data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train, num_workers=args.num_workers)
+    data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train, num_workers=args.num_workers, collate_fn=collate_training_episodes)
 
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs * len(data_loader_train)

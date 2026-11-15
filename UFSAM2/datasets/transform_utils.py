@@ -70,3 +70,9 @@ def denormalize(tens):
     std = torch.tensor([0.229, 0.224, 0.225]).reshape(3, 1, 1).to(tens.device)
 
     return (tens*std)+mean
+
+def collate_training_episodes(batch):
+    """Collate the four fields consumed by engine, across heterogeneous datasets."""
+    from torch.utils.data import default_collate
+    keys = ('query_img', 'query_mask', 'support_imgs', 'support_masks')
+    return default_collate([{key: episode[key] for key in keys} for episode in batch])
