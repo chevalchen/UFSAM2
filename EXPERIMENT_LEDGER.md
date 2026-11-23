@@ -18,4 +18,4 @@
 | `EXP-005` | 不确定性引导的 Support 图特征增强 | `DECIDED / DROP` | `DROP`：三数据集均未通过预设效果与配对 CI 门槛；G1 与均匀/打乱权重几乎一致，可靠性对应关系未获支持。 | [`experiments/EXP-005.md`](experiments/EXP-005.md) | Implementation/execution `256662e0241863fe749e9fef8bf3dcad93723bd0`。 |
 | `EXP-006` | SANSA 测试时梯度自提示细化 | `PROPOSED` | 待验证 | [`experiments/EXP-006.md`](experiments/EXP-006.md) | Parent `964f989`; SANSA reference import `000d450`; historical MTP `219ac83` |
 | `EXP-007` | SAM2-Small 与 Large 的 SANSA 训练成本对比 | `COST_BENCHMARK_COMPLETED` | Small 显著降低 adapter 训练成本；Large FP32 5-shot OOM。建议作为低成本迭代候选，未做精度评价或完整训练。 | [`experiments/EXP-007.md`](experiments/EXP-007.md) | Preparation `439713a`; execution `dd3576e` |
-| `EXP-008` | Small COCO＋ADE20K generalist 训练 | `RUNNING` | ADE20K 全量检查完成；Small、0.8 adapter、FP32＋TF32、batch=8、5 epochs 已在 GPU 0 启动。 | [`experiments/EXP-008.md`](experiments/EXP-008.md) | Execution `15e7083`; upstream `f562b56` |
+| `EXP-008` | Small COCO＋ADE20K generalist 训练 | `TRAINING_COMPLETED / FSS1000_EVALUATED` | 5 epochs 完成；FSS-1000 test mIoU 85.20%（1-shot）、86.55%（5-shot）。 | [`experiments/EXP-008.md`](experiments/EXP-008.md) | Execution `15e7083`; upstream `f562b56` |
