@@ -19,10 +19,10 @@ from PIL import Image, ImageDraw
 import torch
 import torch.nn.functional as F
 from datasets import build_dataset
-from models.sansa.granularity import ReferenceGranularity, nesting_level
+from models.sansa.granularity import ReferenceGranularity, interior_prompt, nesting_level
 from models.sansa.sansa import build_sansa
 from util.commons import make_deterministic
-from util.promptable_utils import build_prompt_dict
+from util.promptable_utils import build_prompt_dict, rescale_prompt
 
 FEATURES = [
     "quality", "sqrt_area", "mean_sibling_iou", "max_sibling_iou",
@@ -80,18 +80,6 @@ def restrict_paco(ds, forbidden, unique):
     print("PACO pool classes", before, "->", len(ds.class_ids_ori), flush=True)
 
 
-class FrozenSelector(ReferenceGranularity):
-    """Reuse support probing, while preserving the original query choice."""
-    def __init__(self):
-        super().__init__("nesting")
-        self.reference = None
-
-    def forward(self, logits, quality, references):
-        if references:
-            self.reference = references[0]
-        return quality.argmax(dim=-1)
-
-
 def weighted_pool(features, regions):
     weights = F.interpolate(regions[:, None].float(), size=features.shape[-2:], mode="area")[:, 0]
     weights = weights.flatten(1)
@@ -141,7 +129,7 @@ def diagnostic_panel(path, batch, candidates, native, best, ious):
     canvas.save(path)
 
 
-def collect(model, selector, data, ds_name, split, fold, indices, seed, path, forbidden=None,
+def collect(model, data, ds_name, split, fold, indices, seed, path, forbidden=None,
             old_audit=None, diagnostics=()):
     from types import SimpleNamespace
     make_deterministic(seed)
@@ -150,6 +138,7 @@ def collect(model, selector, data, ds_name, split, fold, indices, seed, path, fo
         restrict_paco(dataset, forbidden, unique=True)
     make_deterministic(seed)
     cache = {key: [] for key in ("features","inter","union","gt","pixels","native","labels","query","support")}
+    descriptor = ReferenceGranularity("nesting")
     with torch.no_grad():
         for row, idx in enumerate(indices):
             batch = dataset[idx]
@@ -158,28 +147,34 @@ def collect(model, selector, data, ds_name, split, fold, indices, seed, path, fo
                 assert query not in forbidden and support not in forbidden
             samples = torch.cat([batch["support_imgs"],batch["query_img"][None]])[None].cuda()
             prompt = build_prompt_dict(batch["support_masks"][None],"mask",1,False,model.device)
-            selector.reference = None
             result = model(samples,prompt)
             logits = result["candidate_logits"][0]
             quality = result["candidate_quality"][0]
             assert len(logits)==3
             target = batch["query_mask"].cuda()>0
-            candidates = F.interpolate(logits[None], size=target.shape, mode="bilinear",align_corners=False)[0]>0
+            candidates = F.interpolate(logits[None], size=target.shape, mode="bilinear",align_corners=False)[0].sigmoid()>0.5
             inter = (candidates & target).sum((-2,-1)).cpu().numpy()
             union = (candidates | target).sum((-2,-1)).cpu().numpy()
             native = quality.argmax().item()
             assert result["selected_candidate_index"].item()==native
-            assert torch.equal(result["pred_masks"][-1]>0,candidates[native])
+            assert torch.equal(result["pred_masks"][-1].sigmoid()>0.5,candidates[native])
             label = batch["class_id"].item()
             if old_audit is not None:
                 old = old_audit[idx]
                 assert legacy_ids(old)==[query,support] and label==old["class"]
-                assert old["native_index"]==native and list(inter)==old["intersections"] and list(union)==old["unions"]
+                assert old["native_index"]==native and list(inter)==old["intersections"] and list(union)==old["unions"], (
+                    idx, native, inter.tolist(), union.tolist(), old)
                 if idx in diagnostics:
                     iou=inter/np.maximum(union,1)
                     diagnostic_panel(path.parent/f"diagnostic-{idx:04d}.png",batch,candidates,native,int(iou.argmax()),iou)
+            frame_prompt = rescale_prompt(prompt[0][0]["prompt"], "mask", target.shape, model.sam.image_size)
+            reference = None
+            if frame_prompt.any():
+                probe = model._compute_decoder_out_no_mem(
+                    model.exp010_backbone, 0, interior_prompt(frame_prompt), return_candidates=True)
+                reference = descriptor.describe(frame_prompt, probe.candidate_logits)
             values = (episode_features(model.exp010_backbone,logits,quality,batch["support_masks"].cuda(),
-                                       selector.reference).cpu().numpy(), inter,union,target.sum().item(),target.numel(),
+                                       reference).cpu().numpy(), inter,union,target.sum().item(),target.numel(),
                       native,label,query,support)
             for col,value in zip(cache,values):
                 cache[col].append(value)
@@ -252,8 +247,6 @@ def main():
     expected={name for name,_ in model.named_parameters() if "adapter" in name}
     assert expected==saved["model"].keys()
     model.load_state_dict(saved["model"],strict=False)
-    selector=FrozenSelector()
-    model.granularity=selector
     model.audit_candidates=True
     forward_backbone=model._forward_backbone
     def capture(*a,**kw):
@@ -283,7 +276,7 @@ def main():
     def cache(name, ds, split, fold, indices, seed=0, **kwargs):
         if args.smoke:
             indices=list(indices)[:4]
-        return collect(model,selector,args.data,ds,split,fold,indices,seed,args.output/f"{name}.npz",**kwargs)
+        return collect(model,args.data,ds,split,fold,indices,seed,args.output/f"{name}.npz",**kwargs)
     def gap(r):
         iou=np.asarray(r["intersections"])/np.maximum(r["unions"],1)
         return iou.max()-iou[r["native_index"]]
