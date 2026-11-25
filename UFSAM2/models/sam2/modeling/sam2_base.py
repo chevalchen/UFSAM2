@@ -413,6 +413,8 @@ class SAM2Base(torch.nn.Module):
         if return_candidates:
             out.candidate_logits = low_res_multimasks
             out.candidate_quality = ious
+            out.selected_candidate_index = (best_iou_inds if multimask_output
+                                            else torch.zeros(B, dtype=torch.long, device=device))
         return out
 
     def _use_mask_as_output(self, backbone_out, mask_inputs, idx):

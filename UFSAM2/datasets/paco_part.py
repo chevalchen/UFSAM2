@@ -62,6 +62,8 @@ class DatasetPACOPart(Dataset):
         batch = {
             'query_img': query_img,
             'query_mask': query_mask,
+            'query_name': query_name,
+            'support_names': support_names,
             'support_imgs': support_imgs,
             'support_masks': support_masks,
             'class_id': torch.tensor(self.class_ids_c[class_sample])

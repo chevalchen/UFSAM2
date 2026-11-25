@@ -46,23 +46,49 @@ from pathlib import Path
 
 out = Path(sys.argv[1])
 paired = None
+control = None
 summary = {}
 for mode in ("off", "area", "nesting", "both"):
     text = (out / f"{mode}.log").read_text()
     records = [json.loads(line.split("candidate_audit ", 1)[1])
                for line in text.splitlines() if "candidate_audit " in line]
     assert records, f"No episode audit for {mode}"
-    # Identical IDs and candidate intersections/unions prove a paired selection comparison.
-    signature = [tuple(row[key] for key in
-                       ("episode", "class", "query", "supports", "native_index", "intersections", "unions"))
-                 for row in records]
+    keys = ("episode", "class", "query", "supports", "native_index", "intersections", "unions",
+            "candidate_sha256")
+    for index, row in enumerate(records):
+        assert row["episode"] == index
+        assert all(row[key] not in ("None", "[]", "") for key in ("query", "supports"))
+        assert len(row["candidate_sha256"]) == len(row["intersections"]) == len(row["unions"])
+        assert 0 <= row["selected_index"] < len(row["candidate_sha256"])
+    signature = [tuple(row[key] for key in keys) for row in records]
     if paired is not None and signature != paired:
-        raise RuntimeError(f"Episode or candidate mismatch: {mode}")
+        index = next((i for i, (a, b) in enumerate(zip(signature, paired)) if a != b),
+                     min(len(signature), len(paired)))
+        raise RuntimeError(f"Episode or candidate mismatch: {mode}, episode {index}")
     paired = signature
+    if control is None:
+        assert all(row["selected_index"] == row["native_index"] for row in records)
+        control = records
+    switched = improved = worsened = unchanged = 0
+    for before, after in zip(control, records):
+        if before["selected_index"] == after["selected_index"]:
+            assert (before["selected_intersection"], before["selected_union"]) == (
+                after["selected_intersection"], after["selected_union"])
+            continue
+        switched += 1
+        # Compare actual evaluated foreground IoU exactly, with empty unions treated as zero.
+        old_inter, old_union = before["selected_intersection"], max(1, before["selected_union"])
+        new_inter, new_union = after["selected_intersection"], max(1, after["selected_union"])
+        delta = new_inter * old_union - old_inter * new_union
+        improved += delta > 0
+        worsened += delta < 0
+        unchanged += delta == 0
     metrics = re.findall(r"Fold \d+ mIoU:\s*([\d.]+)\s+FB-IoU:\s*([\d.]+)", text)
     if len(metrics) != 1:
         raise RuntimeError(f"Missing or ambiguous final metrics: {mode}")
-    summary[mode] = dict(episodes=len(records), mIoU=float(metrics[0][0]), fbIoU=float(metrics[0][1]))
+    summary[mode] = dict(episodes=len(records), mIoU=float(metrics[0][0]), fbIoU=float(metrics[0][1]),
+                         paired=True, switched=switched, improved=improved, worsened=worsened,
+                         unchanged=unchanged)
 (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
 print(summary)
 PY

@@ -82,6 +82,7 @@ class SANSA(nn.Module):
         if self.audit_candidates and B == 1 and T > n_shots:
             result["candidate_logits"] = decoder_out.candidate_logits
             result["candidate_quality"] = decoder_out.candidate_quality
+            result["selected_candidate_index"] = decoder_out.selected_candidate_index
         return result
 
     def _preprocess_visual_features(

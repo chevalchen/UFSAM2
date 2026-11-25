@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import sys
 from os.path import join
@@ -94,6 +95,9 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
                 "episode": idx, "class": batch["class_id"].item(),
                 "query": str(batch.get("query_name")), "supports": str(batch.get("support_names")),
                 "native_index": outputs["candidate_quality"][0].argmax().item(),
+                "selected_index": outputs["selected_candidate_index"][0].item(),
+                "candidate_sha256": [hashlib.sha256(logits.contiguous().numpy().tobytes()).hexdigest()
+                                     for logits in outputs["candidate_logits"][0].cpu()],
                 "intersections": intersections.tolist(), "unions": unions.tolist(),
                 "selected_intersection": int(area_inter[1].sum()), "selected_union": int(area_union[1].sum()),
             }))
