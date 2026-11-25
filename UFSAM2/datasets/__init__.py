@@ -10,6 +10,11 @@ from .ade20k import build as build_ade20k, SemADE
 
 
 def build_dataset(dataset_file: str, image_set: str, args=None):
+    if dataset_file == 'partimagenet':
+        from .partimagenet import PartImageNet
+        if image_set not in ('val', 'test') or not args.part_annotations or not args.part_images:
+            raise ValueError("PartImageNet evaluation requires --part_annotations and --part_images")
+        return PartImageNet(args.part_annotations, args.part_images, args.shots, args.seed)
     if dataset_file == 'coco':
         return build_coco(image_set, args)
     if dataset_file == 'lvis':

@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from models.sam2.modeling.sam2_utils import preprocess
 from models.sam2.modeling.sam2_base import SAM2Base 
 from models.sansa.model_utils import BackboneOutput, DecoderOutput
+from models.sansa.granularity import interior_prompt
 from util.path_utils import SAM2_PATHS_CONFIG, SAM2_WEIGHTS_URL
 from util.promptable_utils import rescale_prompt
 
@@ -20,6 +21,8 @@ class SANSA(nn.Module):
         super().__init__()
         self.sam = sam
         self.device = device
+        self.granularity = None
+        self.audit_candidates = False
 
     def forward(self, samples: torch.Tensor, prompt_dict: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -41,6 +44,8 @@ class SANSA(nn.Module):
         n_shots = prompt_dict['shots']
         for b in range(B):
             self.memory_bank = {}
+            references = []
+            use_granularity = self.granularity is not None and not self.training
             for idx in range(T):
                 absolute_idx = b * T + idx
 
@@ -50,11 +55,20 @@ class SANSA(nn.Module):
                     frame_prompt = rescale_prompt(frame_prompt, prompt_type, orig_size[b], self.sam.image_size)
                     if prompt_type == 'mask':
                         decoder_out: DecoderOutput = self.sam._use_mask_as_output(backbone_output, frame_prompt, absolute_idx)
+                        if use_granularity and frame_prompt.any():
+                            proposals = None
+                            if self.granularity.mode != "area":
+                                point = interior_prompt(frame_prompt)
+                                probe = self._compute_decoder_out_no_mem(
+                                    backbone_output, absolute_idx, point, return_candidates=True)
+                                proposals = probe.candidate_logits
+                            references.append(self.granularity.describe(frame_prompt, proposals))
                     else:
                         decoder_out: DecoderOutput = self._compute_decoder_out_no_mem(backbone_output, absolute_idx, prompt_input=frame_prompt)
                         
                 else:
-                    decoder_out: DecoderOutput = self._compute_decoder_out_w_mem(backbone_output, absolute_idx, idx, self.memory_bank)
+                    decoder_out: DecoderOutput = self._compute_decoder_out_w_mem(
+                        backbone_output, absolute_idx, idx, self.memory_bank, references)
 
                 # update memory bank
                 mem_entry = self._compute_memory_bank_dict(decoder_out, backbone_output, absolute_idx)
@@ -63,7 +77,12 @@ class SANSA(nn.Module):
 
         masks = torch.cat(outputs["masks"])
         masks = F.interpolate(masks[None], size=orig_size[0], mode='bilinear', align_corners=False)[0]
-        return {"pred_masks": masks}
+        result = {"pred_masks": masks}
+        # eval_fss consumes a single episode with one final query.
+        if self.audit_candidates and B == 1 and T > n_shots:
+            result["candidate_logits"] = decoder_out.candidate_logits
+            result["candidate_quality"] = decoder_out.candidate_quality
+        return result
 
     def _preprocess_visual_features(
         self, samples: torch.Tensor, image_size: int
@@ -90,6 +109,7 @@ class SANSA(nn.Module):
         backbone_out: BackboneOutput,
         idx: int,
         prompt_input: Dict[str, torch.Tensor] | None,
+        return_candidates: bool = False,
     ) -> DecoderOutput:
         """
         Decode a frame without memory: used for reference frames;
@@ -113,6 +133,8 @@ class SANSA(nn.Module):
             backbone_features=pix_feat_no_mem,
             point_inputs=prompt_input,
             high_res_features=high_res_features,
+            multimask_output=return_candidates,
+            return_candidates=return_candidates,
         )
         return decoder_out
 
@@ -122,6 +144,7 @@ class SANSA(nn.Module):
         idx: int,
         memory_idx: int,
         memory_bank: Dict[int, Dict[str, torch.Tensor]],
+        references=None,
     ) -> DecoderOutput:
         """
         Decode a frame with memory: used for target frames;
@@ -153,7 +176,10 @@ class SANSA(nn.Module):
         decoder_out: DecoderOutput = self.sam._forward_sam_heads(
             backbone_features=pix_feat_with_mem,
             high_res_features=high_res_features,
-            multimask_output=True if memory_idx > 0 else False
+            multimask_output=True if memory_idx > 0 else False,
+            return_candidates=self.audit_candidates,
+            mask_selector=(lambda logits, quality: self.granularity(logits, quality, references))
+            if references else None,
         )
         return decoder_out
 

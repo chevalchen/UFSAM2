@@ -45,6 +45,8 @@ class DecoderOutput:
     obj_ptr: Optional[Tensor] = None
     pix_feat_with_mem: Optional[Tensor] = None
     masks: Optional[Tensor] = None
+    candidate_logits: Optional[Tensor] = None
+    candidate_quality: Optional[Tensor] = None
 
     def __post_init__(self):
         self.masks = self.low_res_masks
@@ -59,6 +61,8 @@ class DecoderOutput:
             "hyper_in",
             "object_score",
             "masks",
+            "candidate_logits",
+            "candidate_quality",
             "pix_feat_with_mem",
         ):
             val = getattr(self, field)

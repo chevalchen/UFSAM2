@@ -16,7 +16,9 @@ def get_args_parser() -> argparse.ArgumentParser:
     # Data
     parser.add_argument("--data_root", type=str, default="data", help="Root directory for datasets.")
     parser.add_argument("--dataset_file", type=str, default="coco", choices=["coco", "lvis", "fss", "pascal_voc", "pascal_voc_cd", "pascal_part", "paco_part", "deepglobe", "isic",
-                 "lung", "ade20k", "multi"], help="Dataset name. Use 'multi' for training the generalist model.")
+                   "lung", "ade20k", "multi", "partimagenet"], help="Dataset name. Use 'multi' for training the generalist model.")
+    parser.add_argument("--part_annotations", help="PartImageNet held-out COCO-style part JSON.")
+    parser.add_argument("--part_images", help="Image root relative to PartImageNet JSON file_name entries.")
     parser.add_argument("--multi_train", nargs="+", type=str, default=["lvis", "coco", "ade20k", "paco_part"], help="Datasets to mix when dataset_file='multi'.")
     parser.add_argument("--ds_weight", nargs="+", type=float, default=[0.4, 0.45, 0.1, 0.05], help="Sampling weights for datasets in --multi_train.")
     parser.add_argument("--num_workers", type=int, default=0, help="DataLoader workers.")

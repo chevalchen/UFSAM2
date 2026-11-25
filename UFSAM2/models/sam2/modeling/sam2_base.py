@@ -256,6 +256,8 @@ class SAM2Base(torch.nn.Module):
         mask_inputs=None,
         high_res_features=None,
         multimask_output=False,
+        mask_selector=None,
+        return_candidates=False,
     ):
         """
         Forward SAM prompt encoders and mask heads.
@@ -377,7 +379,8 @@ class SAM2Base(torch.nn.Module):
         sam_output_token = sam_output_tokens[:, 0]
         if multimask_output:
             # take the best mask prediction (with the highest IoU estimation)
-            best_iou_inds = torch.argmax(ious, dim=-1)
+            best_iou_inds = (torch.argmax(ious, dim=-1) if mask_selector is None
+                             else mask_selector(low_res_multimasks, ious))
             batch_inds = torch.arange(B, device=device)
             low_res_masks = low_res_multimasks[batch_inds, best_iou_inds].unsqueeze(1)
             high_res_masks = high_res_multimasks[batch_inds, best_iou_inds].unsqueeze(1)
@@ -407,6 +410,9 @@ class SAM2Base(torch.nn.Module):
             obj_ptr,
             backbone_features
         )
+        if return_candidates:
+            out.candidate_logits = low_res_multimasks
+            out.candidate_quality = ious
         return out
 
     def _use_mask_as_output(self, backbone_out, mask_inputs, idx):

@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from os.path import join
 import torch
@@ -8,6 +9,7 @@ from tqdm import tqdm
 
 import opts
 from models.sansa.sansa import build_sansa
+from models.sansa.granularity import ReferenceGranularity
 from datasets import build_dataset
 from util.commons import make_deterministic, setup_logging, resume_from_checkpoint
 import util.misc as utils
@@ -20,7 +22,13 @@ def main(args: argparse.Namespace) -> float:
     make_deterministic(args.seed)
     print(args)
 
-    model = build_sansa(args.sam2_version, args.adaptformer_stages, args.channel_factor, args.device)
+    model = build_sansa(args.sam2_version, args.adaptformer_stages, args.channel_factor,
+                        args.device, sam2_checkpoint=getattr(args, "sam2_checkpoint", None))
+    model.audit_candidates = getattr(args, "audit_candidates", False)
+    if getattr(args, "granularity", "off") != "off":
+        if args.prompt != "mask":
+            raise ValueError("Reference granularity evaluation requires --prompt mask")
+        model.granularity = ReferenceGranularity(args.granularity)
     device = torch.device(args.device)
     model.to(device)
 
@@ -71,6 +79,25 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
         area_inter, area_union = Evaluator.classify_prediction(pred_masks[-1:].float(), batch, device=imgs.device)
         average_meter.update(area_inter, area_union, batch['class_id'].cuda())
 
+        if model.audit_candidates:
+            candidates = F.interpolate(outputs["candidate_logits"], size=(img_h, img_w),
+                                       mode="bilinear", align_corners=False)[0]
+            candidates = candidates.sigmoid() > args.threshold
+            gt = batch["query_mask"].to(candidates.device)
+            valid = gt != Evaluator.ignore_index
+            if "query_ignore_idx" in batch:
+                valid &= ~batch["query_ignore_idx"].to(candidates.device).bool()
+            truth = gt == 1
+            intersections = (candidates & truth & valid).sum((-2, -1))
+            unions = ((candidates | truth) & valid).sum((-2, -1))
+            print("candidate_audit " + json.dumps({
+                "episode": idx, "class": batch["class_id"].item(),
+                "query": str(batch.get("query_name")), "supports": str(batch.get("support_names")),
+                "native_index": outputs["candidate_quality"][0].argmax().item(),
+                "intersections": intersections.tolist(), "unions": unions.tolist(),
+                "selected_intersection": int(area_inter[1].sum()), "selected_union": int(area_union[1].sum()),
+            }))
+
         if (idx + 1) % 50 == 0:
             miou, _, _ = average_meter.compute_iou()
             pbar.set_description(f"Runn. Avg mIoU = {miou:.1f}")
@@ -102,6 +129,9 @@ def eval_fss(model: torch.nn.Module, args: argparse.Namespace) -> float:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('SANSA evaluation script', parents=[opts.get_args_parser()])
+    parser.add_argument("--granularity", choices=("off", "area", "nesting", "both"), default="off")
+    parser.add_argument("--audit_candidates", action="store_true",
+                        help="Log per-episode candidate intersections and unions after prediction.")
     args = parser.parse_args()
     args.output_dir = join(args.output_dir, args.name_exp)
     main(args)

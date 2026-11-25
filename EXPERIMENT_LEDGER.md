@@ -19,3 +19,4 @@
 | `EXP-006` | SANSA 测试时梯度自提示细化 | `PROPOSED` | 待验证 | [`experiments/EXP-006.md`](experiments/EXP-006.md) | Parent `964f989`; SANSA reference import `000d450`; historical MTP `219ac83` |
 | `EXP-007` | SAM2-Small 与 Large 的 SANSA 训练成本对比 | `COST_BENCHMARK_COMPLETED` | Small 显著降低 adapter 训练成本；Large FP32 5-shot OOM。建议作为低成本迭代候选，未做精度评价或完整训练。 | [`experiments/EXP-007.md`](experiments/EXP-007.md) | Preparation `439713a`; execution `dd3576e` |
 | `EXP-008` | Small COCO＋ADE20K generalist 训练 | `TRAINING_COMPLETED / EVALUATED` | 5 epochs 完成。1/5-shot mIoU：FSS-1000 85.20/86.55%，Pascal-Part 31.92/34.72%，PACO-Part 23.10/24.68%，COCO-20i 66.33/70.14%，LVIS-92i 27.88/31.65%。 | [`experiments/EXP-008.md`](experiments/EXP-008.md) | Execution `15e7083`; upstream `f562b56` |
+| `EXP-009` | 支持示例条件下的候选粒度对齐 | `IMPLEMENTED / SERVER_EVAL_PENDING` | 待服务器配对评测 | [设计与交接](experiments/EXP-009.md) | Parent `97a027c` |
