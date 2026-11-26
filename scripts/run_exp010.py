@@ -87,7 +87,7 @@ def weighted_pool(features, regions):
     return F.normalize(pooled, dim=1)
 
 
-def episode_features(backbone, logits, quality, support, reference):
+def episode_features(backbone, logits, quality, support, reference, return_granularity=False):
     masks = logits > 0
     flat = masks.flatten(1).float()
     inter = flat @ flat.T
@@ -102,10 +102,14 @@ def episode_features(backbone, logits, quality, support, reference):
     similarities = query_desc @ support_desc.T
     if reference is None:
         reference = torch.stack([supports.float().mean().sqrt(), occupancy.new_tensor(float("nan"))])
-    gap = (nesting_level(masks, masks) - reference[1]).abs()
-    return torch.column_stack([quality, occupancy, pair_iou.sum(1) / 2, pair_iou.max(1).values,
+    levels = nesting_level(masks, masks)
+    gap = (levels - reference[1]).abs()
+    features = torch.column_stack([quality, occupancy, pair_iou.sum(1) / 2, pair_iou.max(1).values,
                                similarities, (occupancy - reference[0]).abs(),
                                gap.nan_to_num(), gap.isfinite().float()])
+    if return_granularity:
+        return features, torch.cat([reference, levels])
+    return features
 
 
 def diagnostic_panel(path, batch, candidates, native, best, ious):
@@ -130,7 +134,7 @@ def diagnostic_panel(path, batch, candidates, native, best, ious):
 
 
 def collect(model, data, ds_name, split, fold, indices, seed, path, forbidden=None,
-            old_audit=None, diagnostics=()):
+            old_audit=None, diagnostics=(), save_granularity=False):
     from types import SimpleNamespace
     make_deterministic(seed)
     dataset = build_dataset(ds_name, split, SimpleNamespace(data_root=str(data), fold=fold, shots=1))
@@ -138,6 +142,7 @@ def collect(model, data, ds_name, split, fold, indices, seed, path, forbidden=No
         restrict_paco(dataset, forbidden, unique=True)
     make_deterministic(seed)
     cache = {key: [] for key in ("features","inter","union","gt","pixels","native","labels","query","support")}
+    granularity = []
     descriptor = ReferenceGranularity("nesting")
     with torch.no_grad():
         for row, idx in enumerate(indices):
@@ -173,8 +178,12 @@ def collect(model, data, ds_name, split, fold, indices, seed, path, forbidden=No
                 probe = model._compute_decoder_out_no_mem(
                     model.exp010_backbone, 0, interior_prompt(frame_prompt), return_candidates=True)
                 reference = descriptor.describe(frame_prompt, probe.candidate_logits)
-            values = (episode_features(model.exp010_backbone,logits,quality,batch["support_masks"].cuda(),
-                                       reference).cpu().numpy(), inter,union,target.sum().item(),target.numel(),
+            features = episode_features(model.exp010_backbone, logits, quality,
+                                        batch["support_masks"].cuda(), reference, save_granularity)
+            if save_granularity:
+                features, raw_granularity = features
+                granularity.append(raw_granularity.cpu().numpy())
+            values = (features.cpu().numpy(), inter,union,target.sum().item(),target.numel(),
                       native,label,query,support)
             for col,value in zip(cache,values):
                 cache[col].append(value)
@@ -182,6 +191,8 @@ def collect(model, data, ds_name, split, fold, indices, seed, path, forbidden=No
                 print(path.stem, row+1, "/", len(indices), flush=True)
     arrays={k:np.asarray(v) for k,v in cache.items()}
     arrays["class_ids"]=np.asarray(dataset.class_ids)
+    if save_granularity:
+        arrays["granularity"] = np.asarray(granularity)
     assert np.isfinite(arrays["features"]).all()
     np.savez_compressed(path,**arrays)
     print("SAVED",path,flush=True)
