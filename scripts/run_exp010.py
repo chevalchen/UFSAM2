@@ -87,7 +87,8 @@ def weighted_pool(features, regions):
     return F.normalize(pooled, dim=1)
 
 
-def episode_features(backbone, logits, quality, support, reference, return_granularity=False):
+def episode_features(backbone, logits, quality, support, reference, return_granularity=False,
+                     support_index=0, query_index=1, area_only=False):
     masks = logits > 0
     flat = masks.flatten(1).float()
     inter = flat @ flat.T
@@ -97,11 +98,14 @@ def episode_features(backbone, logits, quality, support, reference, return_granu
     occupancy = flat.mean(1).sqrt()
     supports = F.interpolate(support[:, None].float(), size=logits.shape[-2:], mode="nearest")[:, 0] > 0
     ring = (F.max_pool2d(supports[None].float(), 33, stride=1, padding=16)[0] > 0) & ~supports
-    support_desc = weighted_pool(backbone.get_current_feats_x16(0)[0], torch.cat([supports, ring]))
-    query_desc = weighted_pool(backbone.get_current_feats_x16(1)[0], masks)
+    support_desc = weighted_pool(backbone.get_current_feats_x16(support_index)[0], torch.cat([supports, ring]))
+    query_desc = weighted_pool(backbone.get_current_feats_x16(query_index)[0], masks)
     similarities = query_desc @ support_desc.T
     if reference is None:
         reference = torch.stack([supports.float().mean().sqrt(), occupancy.new_tensor(float("nan"))])
+    if area_only:
+        return torch.column_stack([quality, occupancy, pair_iou.sum(1) / 2, pair_iou.max(1).values,
+                                   similarities, (occupancy - reference[0]).abs()])
     levels = nesting_level(masks, masks)
     gap = (levels - reference[1]).abs()
     features = torch.column_stack([quality, occupancy, pair_iou.sum(1) / 2, pair_iou.max(1).values,
