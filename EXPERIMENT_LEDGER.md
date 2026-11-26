@@ -20,4 +20,4 @@
 | `EXP-007` | SAM2-Small 与 Large 的 SANSA 训练成本对比 | `COST_BENCHMARK_COMPLETED` | Small 显著降低 adapter 训练成本；Large FP32 5-shot OOM。建议作为低成本迭代候选，未做精度评价或完整训练。 | [`experiments/EXP-007.md`](experiments/EXP-007.md) | Preparation `439713a`; execution `dd3576e` |
 | `EXP-008` | Small COCO＋ADE20K generalist 训练 | `TRAINING_COMPLETED / EVALUATED` | 5 epochs 完成。1/5-shot mIoU：FSS-1000 85.20/86.55%，Pascal-Part 31.92/34.72%，PACO-Part 23.10/24.68%，COCO-20i 66.33/70.14%，LVIS-92i 27.88/31.65%。 | [`experiments/EXP-008.md`](experiments/EXP-008.md) | Execution `15e7083`; upstream `f562b56` |
 | `EXP-009` | 支持示例条件下的候选粒度对齐 | `PILOT_EVALUATED` | PACO-Part fold 0、1-shot 基线 22.32% 已复现，四组严格配对。area/nesting/both mIoU 22.28/22.28/22.23%，改错均多于改对 | [设计与交接](experiments/EXP-009.md) | Execution `6b56416`; audit `6d8fa4b` |
-| `EXP-010` | 支持条件候选评分与粒度对照 | `ROUND2_EVALUATED / FULL_EVAL_PROPOSED` | B + 面积在四个子集最好；待全量评估 | [实验记录](experiments/EXP-010.md) | Result `b18b008` |
+| `EXP-010` | 支持条件候选评分与粒度对照 | `FULL_EVAL_RUNNING` | B + 面积在四个子集最好；全量 1/5-shot 配对评估运行中 | [实验记录](experiments/EXP-010.md) | Result `b18b008` |
